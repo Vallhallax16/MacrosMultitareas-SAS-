@@ -1,0 +1,1436 @@
+%MACRO EXTRAER_LISTA_VERIF(Argumentos 		=/*Separados por espacios*/,
+							TablaOrigen		=/*CON Libreria*/,
+							TablaDestino	=/*CON Libreria, donde se pondran los datos*/,
+							Condicion		=/*Condición especial para filtrar la lista, sin WHERE, se recomienda usar el alias T para los argumentos de la TablaOrigen*/%STR( ),
+							UsarDistinct	=/*Solo admite 0 o 1, por defecto está en 0 (NO)*/%STR( ));
+	%LET colocarDistinct			= %STR( );
+
+	%IF &UsarDistinct NE 0 %THEN
+		%LET colocarDistinct		= DISTINCT;
+
+	%DO i = 1 %TO %SYSFUNC(COUNTW(&Argumentos,%STR( )));
+		%IF &i EQ 1 %THEN
+		%DO;
+			%LET extracciones 		= %STR(T.)%SCAN(&Argumentos,&i,%STR( ));
+		%END;
+		%ELSE
+		%DO;
+			%LET extracciones		= &extracciones %STR(T.)%SCAN(&Argumentos,&i,%STR( ));
+		%END;
+
+		%IF &i NE %SYSFUNC(COUNTW(&Argumentos,%STR( )))
+		%THEN
+			%LET extracciones		= &extracciones %STR(,);
+	%END;
+
+	%IF &Condicion NE %STR( ) %THEN
+	%DO;
+		%LET condicionFinal = WHERE &Condicion;
+	%END;
+	%ELSE
+		%LET condicionFinal	= %STR( );
+
+	PROC SQL NOPRINT;
+		CREATE TABLE &TablaDestino AS
+			SELECT &colocarDistinct
+				&extracciones
+			FROM
+				&TablaOrigen T
+
+			&condicionFinal;
+	QUIT;
+%MEND EXTRAER_LISTA_VERIF;
+
+%MACRO OBTENER_FECHA(UnidadCorrimiento	=/*Puede ser en días, meses, annios, NA implica obtener una fehca actual formateada*/,
+						Fecha			=/*Por defecto es hoy (en DATE)*/%SYSFUNC(TODAY()),
+						Corrimiento		=/*Positivo o negativo*/,
+						Alineacion		=/*Por defecto es 's' (same)*/%STR('s'),
+						NombreVariable	=/*CON COMILLAS ,donde se guardara la fecha resultante*/,
+						Formato			=/*Formato que se le aplicará*/);
+
+	%IF &UnidadCorrimiento EQ "NA" %THEN
+	%DO;
+		DATA _NULL_;
+			CALL SYMPUT(&NombreVariable,PUT(&Fecha,&Formato));
+		RUN;
+	%END;
+	%ELSE
+	%DO;
+		DATA _NULL_;
+			CALL SYMPUT(&NombreVariable,PUT(INTNX(&UnidadCorrimiento,&Fecha,&Corrimiento,&Alineacion),&Formato));
+		RUN;
+	%END;
+%MEND OBTENER_FECHA;
+
+%MACRO CORREGIR_DATOS(TablaOrigen	=/*CON Libreria, donde se trataran los datos*/,
+						TipoDatoRev	=/*Donde se aplicarán las transformaciones (NUM o CHAR), AMBOS es para seleccionar los 2 tipos*/,
+						Indices		=/*Números separados por espacios, -1 para aplicarlo a todos los campos*/);
+	%LET tiposDeDatos		=NUM CHAR;
+	%LET variablesConteo	=CONTEOS_NUM|CONTEOS_CHAR;
+
+	%LET patronLibreria 	= %SYSFUNC(PRXPARSE(s/\..*$//));
+	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+
+	%IF &TipoDatoRev EQ NUM %THEN
+	%DO;
+		%LET index 			= 1;
+		%LET limite			= &index;
+	%END;
+	%ELSE %IF &TipoDatoRev EQ CHAR %THEN
+	%DO;
+		%LET index 			= 2;
+		%LET limite			= &index;
+	%END;
+	%ELSE
+	%DO;
+		%LET index 			= 1;
+		%LET limite			= %SYSFUNC(COUNTW(&tiposDeDatos,%STR( )));
+	%END;
+
+	%DO i = &index %TO &limite;
+		%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+							TablaOrigen 		= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+							TipoDato			= %SCAN(&tiposDeDatos,&i,%STR( )),
+							VariableConteo		= %SCAN(&variablesConteo,&i,%STR(|)));
+
+		%LET tiposDeDatoConteo	=&CONTEOS_NUM|&CONTEOS_CHAR;
+		%LET listasVariables	=&LISTA_VARIABLES_NUM|&LISTA_VARIABLES_CHAR;
+		%LET funcionesInt		=IF MISSING(columnasTabla[j]) AND vformat(columnasTabla[j]) NOT IN ('DATE9.', 'DDMMYY10.', 'MMDDYY10.', 'E8601DA.', 'DATETIME20.') THEN columnasTabla[j] = 0;
+		%LET funcionesStr		=%STR(columnasTabla[j] = COMPBL(columnasTabla[j]); columnasTabla[j] = STRIP(columnasTabla[j]); columnasTabla[j] = TRANSLATE(UPCASE(columnasTabla[j]),'AAAEEEIIIOOOUUU','ÁÀÄÉÈËÍÌÏÓÒÖÚÙÜ'));
+		%LET funcionesInt		= &funcionesInt %STR(;);
+		%LET funcionesStr		= &funcionesStr %STR(;);
+		%LET funciones			= &funcionesInt|&funcionesStr;
+
+		%IF &Indices EQ -1 %THEN
+		%DO;
+			%LET cabeceraCiclo 	= DO j %STR(=) 1 TO %SCAN(&tiposDeDatoConteo,&i,%STR(|))%STR(;);
+		%END;
+		%ELSE
+		%DO;
+			%LET cabeceraCiclo 	= DO j %STR(=) 1 TO %SYSFUNC(COUNTW(&Indices,%STR( )))%STR(;);
+		%END;
+
+		DATA &TablaOrigen (DROP = j);
+		SET &TablaOrigen;
+			array columnasTabla [%SCAN(&tiposDeDatoConteo,&i,%STR(|))] %SCAN(&listasVariables,&i,%STR(|)) %STR(;);
+
+			&cabeceraCiclo;
+				%SCAN(&funciones,&i,%STR(|));
+			END;
+		RUN;
+	%END;
+%MEND CORREGIR_DATOS; 
+
+%MACRO UNIR_TABLAS(TablaOrigen	=/*CON Libreria, tabla a la cual se le unirán las subsecuentes*/,
+					TablasAUnir	=/*CON Libreria, pueden ser varias tablas separadas por espacio*/,
+					ForzarUnion	=/*Por defecto se forzará la unión del Origen con las tablas a unir, solo se añaden las columnas que aparecen en el origen, para evitarlo poner NO*/FORCE);
+
+	%IF &ForzarUnion NE FORCE %THEN
+		&ForzarUnion = %STR( );
+
+	%DO i = 1 %TO %SYSFUNC(COUNTW(&TablasAUnir, %STR( )));
+		%LET tablaActual = %SCAN(&TablasAUnir, &i, %STR( ));
+
+		PROC APPEND BASE = &TablaOrigen DATA = &tablaActual &ForzarUnion;
+		RUN;
+	%END;
+%MEND UNIR_TABLAS;
+
+%MACRO CREAR_EQ_ESCALAR(TablaDestino        = /*CON Libreria, donde se colocará la tabla*/,
+                        ValoresTexto        = /*Separados por | (Pipe), SIN comillas y en orden de importancia (Menor a mayor)*/,
+                        ValorMinimo         = /*SIN comillas*/,
+						ValorNeutro         = /*SIN comillas, por defecto es 0*/0,
+                        ValorMaximo         = /*SIN comillas*/);
+    
+    %LET inicial        = &ValorMinimo;
+
+    %LET valores        = %STR( );
+
+    %DO i = 1 %TO %SYSFUNC(COUNTW(&ValoresTexto,%STR(|)));
+        %LET patronEsp 	= %SYSFUNC(PRXPARSE(s/\s/.*/));
+
+		%LET valorAlter	= %SYSFUNC(PRXCHANGE(&patronEsp, -1, %SCAN(&ValoresTexto, &i, %STR(|))));
+		%LET valorAlter = .*%SYSFUNC(UPCASE(&valorAlter)).*;
+
+        %LET valorTemp  = %SYSFUNC(CATS(".*","&valorAlter"));
+        %LET valorTemp  = %SYSFUNC(UPCASE(&valorTemp));
+        
+        %LET valores    = &valores %STR(VALUES ("&valorAlter", "&inicial"));
+
+        %LET inicial    = %EVAL(&inicial + 1);
+    %END;
+
+    DATA &TablaDestino;
+	LENGTH
+		VIEJO_EQ			$50
+		ID_EQUIVALENTE_EQ	$40;
+    STOP;
+    RUN;             
+                            
+    PROC SQL;
+        INSERT INTO 
+            &TablaDestino
+            (VIEJO_EQ, ID_EQUIVALENTE_EQ)
+        &valores %STR(;);
+    QUIT;
+%MEND CREAR_EQ_ESCALAR;
+
+%MACRO SUSTITUIR_VALORES(TablaOrigen 			= /*CON Libreria*/,
+							CampoALeer			= /*SIN comillas, pertenece a la tabla origen, donde se reemplazará todo, separados por espacio si son varios*/,
+							TablaSusticiones	= /*CON Libreria, posee todas las equivalencias*/);
+								
+	%LET columnasConteo			= %SYSFUNC(COUNTW(&CampoALeer, %STR( )));
+								
+	DATA &TablaOrigen (DROP = ptrTabla cantRenglones ptrCierre i VIEJO_EQ ID_EQUIVALENTE_EQ inicio opuesto incremento lector leidos);
+	SET &TablaOrigen;
+		RETAIN cantRenglones;
+
+		ARRAY columnas[&columnasConteo] &CampoALeer;
+
+		IF _N_ EQ 1 THEN
+		DO;
+			ptrTabla 		= open("&TablaSusticiones");
+			cantRenglones 	= attrn(ptrTabla, 'NOBS');
+			ptrCierre 		= close(ptrTabla);
+		END;
+
+		DO i = 1 TO dim(columnas);
+			inicio 				= 1;
+			opuesto				= cantRenglones;
+			incremento			= 0;
+			lector				= inicio;
+			leidos				= 1;
+
+			DO WHILE(leidos <= cantRenglones);
+				SET &TablaSusticiones POINT = lector;
+
+				IF PRXMATCH(CATS('/', VIEJO_EQ, '/i'), columnas[i]) THEN
+				DO;
+					columnas[i] = ID_EQUIVALENTE_EQ;
+					LEAVE;
+				END;
+				ELSE
+				DO;
+					IF MOD(lector,2) NE 0 THEN
+					DO;
+						lector	= opuesto - incremento;
+					END;
+					ELSE
+					DO;
+						lector	= inicio + incremento;
+					END;
+
+					incremento + 1;
+					leidos + 1;
+				END;
+			END;
+		END;
+	RUN;
+%MEND SUSTITUIR_VALORES;
+
+%MACRO CREAR_RANGO(TablaOrigen			= /*CON Libreria, de donde se extraeran los rangos y se creará la columna ID_EQUIVALENTE_EQ*/,
+					Unidad				= /*SIN COMILLAS, se buscará en la columna objetivo*/,
+					DatoRegex			= /*Dato en formato regex que se buscará*/);
+						
+	%IF 		"&Unidad" EQ "HORA" %THEN
+		%LET medidaBase					= 60;
+	%ELSE /* Empleado para años pero debido a la codificacion no permite hacer EQ 'AÑO' */
+		%LET medidaBase					= 12;
+				
+	DATA &TablaOrigen (DROP = patronDato patronDatoUni ptrTabla cantRenglones ptrCierre encontrados inicio fin fin2 posInicial posInicial2 numerosEncontrados unidadesEncontradas i numeroTemporal equivalencia);
+	SET &TablaOrigen;
+		RETAIN patronDato patronDatoUni;
+
+		IF _N_ EQ 1 THEN
+		DO;
+			patronDato					= PRXPARSE("/&DatoRegex/");
+			patronDatoUni				= PRXPARSE("/&Unidad/");
+
+			ptrTabla 					= open("&TablaOrigen");
+			cantRenglones 				= attrn(ptrTabla, 'NOBS');
+			ptrCierre 					= close(ptrTabla);
+		END;
+
+		posInicial						= 1;
+		posInicial2						= 1;
+
+		ARRAY numeros[2] _TEMPORARY_;
+		ARRAY posUnidades[2] _TEMPORARY_;
+
+		numerosEncontrados				= 0; 
+		unidadesEncontradas				= 0;
+		inicio							= 0;
+
+		posUnidades[1]					= -1;
+		posUnidades[2]					= -1;
+
+		DO i = 1 TO dim(numeros);
+			CALL PRXNEXT(patronDato, posInicial, lengthc(VIEJO_EQ), VIEJO_EQ, inicio, fin);
+
+			IF inicio NE 0 THEN
+			DO;
+				numerosEncontrados 		+ 1;
+				numeros[i]				= SUBSTR(VIEJO_EQ, inicio, fin);
+			END;
+
+			CALL PRXNEXT(patronDatoUni, posInicial2, length(VIEJO_EQ), UPCASE(VIEJO_EQ), posUnidades[i], fin2);
+
+			IF posUnidades[i] NE 0 AND
+				posUnidades[1] NE posUnidades[2]  THEN
+			DO;
+				unidadesEncontradas	+ 1;
+			END;
+		END;
+
+		IF numerosEncontrados		EQ	2	AND
+			unidadesEncontradas		EQ	2	THEN
+		DO;
+			ID_EQUIVALENTE_EQ		= CATS(numeros[1], " - ", numeros[2]);
+		END;
+		ELSE IF numerosEncontrados	EQ	2	AND
+			unidadesEncontradas		EQ	1	THEN
+		DO;
+			equivalencia			= numeros[1] / &medidaBase;
+			FORMAT equivalencia 8.2;
+
+			ID_EQUIVALENTE_EQ		= CATS(equivalencia, " - ", numeros[2]);
+		END;
+		ELSE IF numerosEncontrados	EQ	1	AND
+			unidadesEncontradas		EQ	1	THEN
+		DO;
+			ID_EQUIVALENTE_EQ		= CATS(numeros[1], "+");
+		END;
+		ELSE IF numerosEncontrados	EQ	1	AND
+			unidadesEncontradas		EQ	0	THEN
+		DO;
+			equivalencia			= numeros[1] / &medidaBase;
+			FORMAT equivalencia 8.2;
+
+			ID_EQUIVALENTE_EQ		= CATS("0", " - ", equivalencia);
+		END;
+	RUN;
+%MEND CREAR_RANGO;
+
+%MACRO ELIMINAR_FIJAS(ColumnasFijas					= /*Columnas que no deben ser tomadas en cuenta*/,
+						TipoDato					= /*CHAR, NUM o TODAS */,
+						SeparadorDeFijas			= /*Por lo general es |*/%STR(|),
+						SeparadorDeOriginales		= /*Por lo general es espacio ' '*/%STR( ));
+							
+	%IF "&TipoDato" EQ "CHAR" %THEN
+	%DO;
+		%LET limiteOriginal			=&CONTEOS_CHAR;
+		%LET columnasOriginales 	=%SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_CHAR));
+	%END;
+	%ELSE %IF "&TipoDato" EQ "NUM" %THEN
+	%DO;
+		%LET limiteOriginal			=&CONTEOS_NUM;
+		%LET columnasOriginales 	=%SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_NUM));		
+	%END;
+	%ELSE
+	%DO;
+		%LET limiteOriginal			=%SYSFUNC(COUNTW(&LISTA_VARIABLES_TODAS));
+		%LET columnasOriginales 	=%SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_TODAS));	
+	%END;
+
+	%LET limiteFijas				=%SYSFUNC(COUNTW(&ColumnasFijas,&SeparadorDeFijas));
+
+	%LET depuradas					=%STR();
+							
+	%DO i = 1 %TO &limiteOriginal;
+		%LET encontrado				=0;
+
+		%LET varOriginalEnTurno		=%SCAN(&columnasOriginales, &i, &SeparadorDeOriginales);
+
+		%DO j = 1 %TO &limiteFijas;
+			%LET varFijaEnTurno		=%SCAN(&ColumnasFijas, &j, &SeparadorDeFijas);
+
+			%IF &varOriginalEnTurno EQ &varFijaEnTurno %THEN
+			%DO;
+				%LET encontrado	=1;
+				%LET j				=%EVAL(&limiteFijas + 1);
+			%END;
+		%END;
+
+		%IF &encontrado NE 1 %THEN
+		%DO;
+			%LET depuradas			=&depuradas&varOriginalEnTurno;
+
+			%IF &i < &limiteOriginal %THEN
+				%LET depuradas		=&depuradas&SeparadorDeOriginales;
+		%END;
+	%END;
+
+	%IF "&TipoDato" EQ "CHAR" %THEN
+	%DO;
+		%LET CONTEOS_CHAR			=%SYSFUNC(COUNTW(&depuradas,&SeparadorDeOriginales));
+		%LET LISTA_VARIABLES_CHAR	=&depuradas;
+	%END;
+	%ELSE %IF "&TipoDato" EQ "NUM" %THEN
+	%DO;
+		%LET CONTEOS_NUM			=%SYSFUNC(COUNTW(&depuradas,&SeparadorDeOriginales));
+		%LET LISTA_VARIABLES_NUM	=&depuradas;
+	%END;
+	%ELSE
+	%DO;
+		%LET LISTA_VARIABLES_TODAS	=&depuradas;
+	%END;
+%MEND ELIMINAR_FIJAS;
+
+%MACRO TRANSPONER_PARAMETRIZADO(TablaOrigen			= /*CON Libreria, de donde se tomarán los datos*/,
+								ColOrigen			= /*Pertenecientes a la tabla Origen, de aqui se extraerá el valor para cada ColDestino, SEPARADOS POR | (PIPE)*/,
+								TablaDestino		= /*CON Libreria, donde se colocará el resultado*/,
+								ColDestino			= /*Pertenecientes a la tabla Destino, se igualarán 1:1 a las tablas origen, SEPARADOS POR | (PIPE)*/,
+								ColEqEtiquetas		= /*Columnas que tomarán su valor de las etiquetas, SEPARADOS POR | (PIPE)*/%STR(ARG_EMPTY),
+								Etiquetas			= /*Entre comillas cada una y separadas por | "STR1"|"STR2", primero las de los campos NUM y luego CHAR */%STR(ARG_EMPTY),
+								ColEqNum			= /*Columnas que tomarán sus valores de las columnas NUM de TablaOrigen, SEPARADOS POR | (PIPE)*/%STR(ARG_EMPTY),
+								ColEqStr			= /*Columnas que tomarán sus valores de las columnas CHAR de TablaOrigen, SEPARADOS POR | (PIPE)*/%STR(ARG_EMPTY),
+								ColDate				= /*Columnas que se formatearan como fechas */%STR(ARG_EMPTY),
+								FormatosFecha		= /*Formatos que se asignaran 1 a 1 con los ColDate*/%STR(ARG_EMPTY)
+								);
+	
+	%GLOBAL CONTEOS_CHAR;
+	%GLOBAL CONTEOS_NUM;
+
+	%LET patronLibreria 					= %SYSFUNC(PRXPARSE(s/\..*$//));
+	%LET patronTabla 						= %SYSFUNC(PRXPARSE(s/^.*\.//));
+
+	%LET conteoEtiquetas					= %SYSFUNC(COUNTW(&Etiquetas, %STR(|)));
+	%LET conteoAsignacionFija				= %SYSFUNC(COUNTW(&ColDestino, %STR(|)));
+	%LET conteoAsignacionEtiquetas			= %SYSFUNC(COUNTW(&ColEqEtiquetas, %STR(|)));
+	%LET conteoAsignacionNum				= %SYSFUNC(COUNTW(&ColEqNum, %STR(|)));
+	%LET conteoAsignacionStr				= %SYSFUNC(COUNTW(&ColEqStr, %STR(|)));
+	%LET conteoAsignacionDate				= %SYSFUNC(COUNTW(&ColDate, %STR(|)));
+
+	%LET asignacionEtiquetas				= %STR( );
+	%LET asignacionFija						= %STR( );
+	%LET asignacionAEtiquetas				= %STR( );
+	%LET asignacionAStr						= %STR( );
+	%LET asignacionADate					= %STR( );
+
+	%LET CondicionExtra						= %STR(AND NAME NOT IN) &EXCLUSIONES;
+
+	%LET colDestEqNum                       = %SYSFUNC(TRANWRD(&ColEqNum,%STR(|),%STR( )));
+    %LET conteoDestEqNum                    = %SYSFUNC(COUNTW(&colDestEqNum, %STR( )));
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaDestino)),
+							TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaDestino)),
+							TipoDato		= NUM,
+							VariableConteo	= CONTEOS_NUM,
+							CondicionExtra	= &CondicionExtra);
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaDestino)),
+							TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaDestino)),
+							TipoDato		= CHAR,
+							VariableConteo	= CONTEOS_CHAR,
+							CondicionExtra	= &CondicionExtra);
+
+	%LET varStrDestino						= &LISTA_VARIABLES_CHAR;
+	%LET varNumDestino						= &LISTA_VARIABLES_NUM;
+
+	%IF NOT %SYSFUNC(EXIST(&TablaDestino)) %THEN
+	%DO;
+		%LET LISTA_VARIABLES_TODAS				= %SYSFUNC(TRANWRD(&ColDestino,%STR(|),%STR( )));
+
+		%IF "&ColEqNum" NE "ARG_EMPTY" %THEN
+		%DO;
+			%LET LISTA_VARIABLES_TODAS			=&LISTA_VARIABLES_TODAS %SYSFUNC(TRANWRD(&ColEqNum,%STR(|),%STR( )));
+		%END;
+
+		%IF "&ColEqStr" NE "ARG_EMPTY" %THEN
+		%DO;
+			%LET LISTA_VARIABLES_TODAS			=&LISTA_VARIABLES_TODAS %SYSFUNC(TRANWRD(&ColEqStr,%STR(|),%STR( )));
+		%END;
+
+		%IF "&ColEqEtiquetas" NE "ARG_EMPTY" %THEN
+		%DO;
+			%LET LISTA_VARIABLES_TODAS			=&LISTA_VARIABLES_TODAS %SYSFUNC(TRANWRD(&ColEqEtiquetas,%STR(|),%STR( )));
+		%END; 
+	%END;
+	%ELSE
+	%DO;
+		%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaDestino)),
+								TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaDestino)),
+								TipoDato		= TODAS,
+								VariableConteo	= CONTEOS_CHAR);
+	%END;
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+							TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+							TipoDato		= NUM,
+							VariableConteo	= CONTEOS_NUM);
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+							TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+							TipoDato		= CHAR,
+							VariableConteo	= CONTEOS_CHAR);
+
+	%ELIMINAR_FIJAS(ColumnasFijas					= &ColOrigen,
+						TipoDato					= CHAR,
+						SeparadorDeFijas			= %STR(|));
+
+	%ELIMINAR_FIJAS(ColumnasFijas					= &ColOrigen,
+						TipoDato					= NUM,
+						SeparadorDeFijas			= %STR(|));
+
+	%DO i = 1 %TO &conteoAsignacionFija;
+		%LET asignacionFija					= &asignacionFija %SCAN(&ColDestino, &i, %STR(|)) %STR(=) %SCAN(&ColOrigen, &i, %STR(|)) %STR(;);
+	%END;
+
+	%LET etiquetaBase						= %SYSFUNC( COMPRESS( %UNQUOTE( %SCAN(&Etiquetas, 1, %STR(|)) ),"'" ) );
+
+	%IF "&etiquetaBase" NE "ARG_EMPTY" %THEN
+	%DO;
+		%DO i = 1 %TO &conteoEtiquetas;
+			%LET asignacionEtiquetas 			= &asignacionEtiquetas %STR(arrayEtiquetas)[&i] %STR(=) %SCAN(&Etiquetas,&i,%STR(|)) %STR(;);
+		%END;
+	%END;
+
+	%IF "&ColEqEtiquetas" NE "ARG_EMPTY" %THEN
+	%DO;
+		%DO i = 1 %TO &conteoAsignacionEtiquetas;
+			%LET asignacionAEtiquetas			= &asignacionAEtiquetas %SCAN(&ColEqEtiquetas, &i, %STR(|)) %STR(=) %STR(arrayEtiquetas[i]) %STR(;);
+		%END;
+	%END;
+
+	%IF "&ColEqStr" NE "ARG_EMPTY" %THEN
+	%DO;
+		%DO i = 1 %TO &conteoAsignacionStr;
+			%LET asignacionAStr					= &asignacionAStr %SCAN(&ColEqStr, &i, %STR(|)) %STR(=) %STR(columnasStr[j]) %STR(;);
+		%END;
+	%END;
+
+	%IF "&ColDate" NE "ARG_EMPTY" %THEN
+	%DO;
+		%DO i = 1 %TO &conteoAsignacionDate;
+			%LET asignacionADate				= &asignacionADate %STR(FORMAT) %SCAN(&ColDate, &i, %STR(|)) %SCAN(&FormatosFecha, &i, %STR(|)) %STR(;);
+		%END;
+	%END;
+							
+	/*DATA &TablaDestino (KEEP = &varNumDestino &varStrDestino);*/
+	DATA &TablaDestino (KEEP = &LISTA_VARIABLES_TODAS);
+	/*DATA &TablaDestino (DROP = i k j formato );*/
+	SET &TablaOrigen;
+
+	ARRAY arrayEtiquetas[&conteoEtiquetas] $200 _TEMPORARY_;
+	&asignacionEtiquetas;
+
+	%IF &CONTEOS_CHAR NE 0 %THEN
+	%DO;
+		%LET dimensionStr					= dim(columnasStr);
+
+		ARRAY columnasStr[&CONTEOS_CHAR]
+			&LISTA_VARIABLES_CHAR; %STR(;);
+	%END;
+	%ELSE
+		%LET dimensionStr					= 0;
+
+	%IF &CONTEOS_NUM NE 0 %THEN
+	%DO;
+		%LET dimensionNum					= dim(columnasInt);
+
+		ARRAY columnasInt[&CONTEOS_NUM]
+			&LISTA_VARIABLES_NUM; %STR(;);
+	%END;
+	%ELSE
+		%LET dimensionNum					= 0;
+
+    %IF "&ColEqNum" NE "ARG_EMPTY" %THEN
+	%DO;
+        ARRAY columnasDestInt [&conteoDestEqNum] $40
+            &colDestEqNum; %STR(;);
+    %END;
+
+	conteoTotal = &dimensionStr + &dimensionNum;
+
+	DO i = 1 TO conteoTotal;
+		IF i < (&dimensionNum + 1) THEN
+		DO;
+			%IF &CONTEOS_NUM NE 0 %THEN
+			%DO;
+				IF NOT MISSING(columnasInt[i]) THEN
+				DO;
+					&asignacionFija;
+
+					&asignacionAEtiquetas;
+
+					%IF "&ColEqNum" NE "ARG_EMPTY" %THEN
+					%DO;
+						DO k = 1 TO dim(columnasDestInt);
+							columnasDestInt[k] = "";
+
+							IF vformat(columnasInt[i]) IN ('DATE9.', 'DDMMYY10.', 'MMDDYY10.', 'E8601DA.', 'DATETIME20.') THEN
+							DO;
+								formato								= %STR(vformat(columnasInt[i]))%STR(;);
+								columnasDestInt[k]		            = STRIP(PUTN(columnasInt[i],formato));
+							END;
+							ELSE
+							DO;
+								columnasDestInt[k]             		= STRIP(PUT(columnasInt[i],BEST20.));
+							END;
+						END;
+					%END;
+
+					FE_CARGA 		= DATETIME();
+
+					&asignacionADate;
+
+					OUTPUT;
+				END;
+			%END;
+		END;
+		ELSE
+		DO;
+			j = i - &CONTEOS_NUM;
+
+			%IF &CONTEOS_CHAR NE 0 %THEN
+			%DO;
+				IF NOT MISSING(columnasStr[j]) THEN
+				DO;
+					&asignacionFija;
+
+					&asignacionAEtiquetas;
+
+					&asignacionAStr;
+
+					FE_CARGA 		= DATETIME();
+
+					&asignacionADate;
+
+					OUTPUT;
+				END;
+			%END;
+		END;
+	END;
+	RUN;
+%MEND TRANSPONER_PARAMETRIZADO;
+
+%MACRO REGENERAR_INDICE(TablaDestino		= /*CON Libreria, donde se generara el Ã­ndice*/,
+						Campo				= /*Si son varios, separados por espacio ' ' */%STR( ),
+						Unico				= /*Si el indice será unico poner 1, por defecto no lo es 0 */0,
+						ForzarUnion			= /*Si esta opción está activa, la de Único se desactivará, por defecto está en 0*/0);
+							
+	%IF %SYSFUNC(COUNTW(&Campo)) > 1 %THEN
+	%DO;
+		%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+		%LET nombreIndice		= IDX_%SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaDestino));
+	%END;
+	%ELSE
+	%DO;
+		%LET nombreIndice		= &Campo;
+	%END;
+
+	%IF &Unico EQ 1 %THEN
+	%DO;
+		%LET condicionUnica		= %STR(/ UNIQUE);
+	%END;
+	%ELSE
+	%DO;
+		%LET condicionUnica		= %STR();
+	%END;
+
+	%IF &ForzarUnion EQ 1 %THEN
+	%DO;
+		%LET condicionUnica		= %STR(/ FORCE);
+	%END;
+	%ELSE
+	%DO;
+		%LET condicionUnica		= %STR();
+	%END;
+
+	DATA &TablaDestino(INDEX=(&nombreIndice=(&Campo) &condicionUnica));
+	SET &TablaDestino;
+
+	RUN;
+%MEND REGENERAR_INDICE;
+
+%MACRO FORMATEAR_FECHAS(TablaDestino		= /*CON LIBRERIA, donde se aplicarán los formateos*/,
+						CamposFecha			= /*Campos fecha a aplicar transformacion, si se deja vacio aplicara a todos el primer formato enviado separados por espacio %STR( )*/%STR(TODOS),
+						FormatosFecha		= /*Formatos a asignar a las fechas separados por espacio*/);
+							
+	%IF "&CamposFecha" EQ "TODOS" %THEN
+	%DO;
+		%LET patronLibreria 					= %SYSFUNC(PRXPARSE(s/\..*$//));
+		%LET patronTabla 						= %SYSFUNC(PRXPARSE(s/^.*\.//));
+		%LET patronCampoFecha					= %SYSFUNC(PRXPARSE(/FE_/));
+
+		%PRIMEROS_CALCULOS(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaDestino)),
+								TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaDestino)),
+								TipoDato		= NUM,
+								VariableConteo	= CONTEOS_NUM);
+
+		%LET LISTA_VARIABLES_NUM				= %SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_NUM));	
+
+		%LET instruccionesFormateo				=%STR( );
+
+		%DO i = 1 %TO &CONTEOS_NUM;
+			%LET variableNumEnTurno				=%SCAN(&LISTA_VARIABLES_NUM, &i, %STR( ));
+			
+			%IF %SYSFUNC(PRXMATCH(&patronCampoFecha, &variableNumEnTurno)) > 0 %THEN
+			%DO;
+				%LET instruccionesFormateo		=&instruccionesFormateo%STR(FORMAT) &variableNumEnTurno &FormatosFecha%STR(;);
+			%END;
+		%END;
+	%END;
+	%ELSE
+	%DO;
+		%LET instruccionesFormateo				=%STR( );
+
+		%DO i = 1 %TO %SYSFUNC(COUNTW(&CamposFecha, %STR( )));
+			%LET variableNumEnTurno				=%SCAN(&CamposFecha, &i, %STR( ));
+
+			%LET variableFormEnTurno			=%SCAN(&FormatosFecha, &i, %STR( ));
+
+			%LET instruccionesFormateo			=&instruccionesFormateo%STR(FORMAT) &variableNumEnTurno &variableFormEnTurno%STR(;);
+		%END;
+	%END;
+
+	DATA &TablaDestino;
+	SET &TablaDestino;
+		&instruccionesFormateo;
+	RUN;
+%MEND FORMATEAR_FECHAS;
+
+%MACRO ELIMINAR_ACENTOS(TablaDestino	= /*CON Libreria, donde se aplicarán los cambios*/,
+						Campo			= /*Donde se aplicarán las transformaciones*/);
+	DATA &TablaDestino;
+	SET &TablaDestino;
+		&Campo = TRANSLATE(UPCASE(&Campo), 'AEIOU', 'ÁÉÍÓÚ');
+	RUN;
+%MEND ELIMINAR_ACENTOS;
+
+%MACRO ACTUALIZAR_INFO(TablaDestino			= /*CON Libreria, donde se aplicarán los cambios*/,
+						Campo				= /*Campo(s) donde se actualizará la información, si son varios, separados por espacios*/,
+						TablaActualizacion	= /*De donde se tomarán las actualizaciones*/,
+						CamposActualizacion = /*De dejarse en blanco se tomarán los mismos nombres que los de variable Campo*/NULO);
+							
+	%LET temporal							=%SCAN(&Campo, 1, %STR( ));
+
+	%IF "&temporal" EQ "NULO" %THEN
+		%LET camposActualizadores			=&Campo;
+	%ELSE
+		%LET camposActualizadores			=&CamposActualizacion;
+
+	%LET camposActualizables				=%STR();
+
+	%DO contadorI = 1 %TO %SYSFUNC(COUNTW(&Campo, %STR( )));
+		%LET camposActualizables			=&camposActualizables %SCAN(&Campo, &contadorI, %STR( )) %STR(=) (SELECT ST1.%SCAN(&camposActualizadores, &contadorI, %STR( )));
+	%END;
+
+	PROC SQL;
+		UPDATE 
+			&TablaDestino
+		SET
+			&camposActualizables;
+	;QUIT;
+%MEND ACTUALIZAR_INFO;
+
+%MACRO HOMOLOGAR_INFORMACION(TablaOrigen			=/*CON Libreria, donde se escribirán los cambios*/,
+								CamposVerificadores	=/*Separados por espacios si son más de uno*/,
+								SeparadorCampos		=/*Por defecto es espacio*/%STR( ));
+	%GLOBAL LISTA_VARIABLES_TODAS;
+	%GLOBAL CONTEOS_CHAR;
+
+	%LET patronLibreria 	= %SYSFUNC(PRXPARSE(s/\..*$//));
+	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+								TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+								TipoDato		= TODAS,
+								VariableConteo	= CONTEOS_CHAR);
+
+	%LET columnasOriginales	= &LISTA_VARIABLES_TODAS;
+
+	%ELIMINAR_FIJAS(ColumnasFijas				=&CamposVerificadores,
+						TipoDato				=TODAS,
+						SeparadorDeFijas		=&SeparadorCampos,
+						SeparadorDeOriginales	=%STR( ));
+									
+	%LET camposVerifRenombrados 				=%STR();
+	%LET camposRenombrados 						=%STR();
+	%LET condicionNotMissing					=%STR();
+	%LET condicionIsEqual						=%STR();
+	%LET condicionSetEqual						=%STR();
+
+	%DO contadorI = 1 %TO %SYSFUNC(COUNTW(&CamposVerificadores, &SeparadorCampos));
+		%LET variableActual			=%SCAN(&CamposVerificadores, &contadorI, &SeparadorCampos);
+
+		%LET camposVerifRenombrados 	=&camposVerifRenombrados &variableActual %STR(=) &variableActual._R;
+
+		%LET condicionNotMissing		=&condicionNotMissing NOT %STR(MISSING)(&variableActual);
+
+		%LET condicionIsEqual			=&condicionIsEqual &variableActual EQ &variableActual._R;
+
+		%IF &contadorI NE %SYSFUNC(COUNTW(&CamposVerificadores, &SeparadorCampos)) %THEN
+		%DO;
+			%LET condicionNotMissing	=&condicionNotMissing AND;
+
+			%LET condicionIsEqual		=&condicionIsEqual AND;
+		%END;
+	%END;
+
+	%DO contadorI = 1 %TO %SYSFUNC(COUNTW(&LISTA_VARIABLES_TODAS &SeparadorCampos));
+		%LET variableActual			=%SCAN(&LISTA_VARIABLES_TODAS, &contadorI, &SeparadorCampos);
+
+		%LET camposRenombrados		=&camposRenombrados &variableActual %STR(=) &variableActual._R;
+		
+		%LET condicionSetEqual		=&condicionSetEqual IF %STR(MISSING)(&variableActual) AND NOT %STR(MISSING)(&variableActual._R) THEN &variableActual %STR(=) &variableActual._R %STR(;);
+		%LET condicionSetEqual		=&condicionSetEqual IF NOT %STR(MISSING)(&variableActual) AND %STR(MISSING)(&variableActual._R) THEN &variableActual._R %STR(=) &variableActual %STR(;);
+	%END;
+										
+	DATA &TablaOrigen (KEEP = &columnasOriginales depurar);
+	SET &TablaOrigen;
+		retain cantRenglones;
+
+		IF _N_ EQ 1 THEN
+		DO;
+			ptrTabla 		= OPEN('&TablaOrigen');
+			cantRenglones 	= ATTRN(ptrTabla, 'NOBS');
+			ptrCierre 		= CLOSE(ptrTabla);
+		END;
+
+		renglonSiguiente	= _N_ + 1;
+		
+		IF _N_ NE cantRenglones THEN
+		DO;
+			SET &TablaOrigen (RENAME=(
+				&camposVerifRenombrados
+				&camposRenombrados
+			)) POINT = renglonSiguiente; 
+
+			IF &condicionNotMissing THEN
+			DO;
+				IF &condicionIsEqual THEN
+				DO;
+					&condicionSetEqual;
+				END;
+			END;
+			ELSE
+			DO;
+				depurar = 1;
+			END;
+		END;
+	RUN;
+
+	DATA &TablaOrigen (DROP = depurar);
+	SET &TablaOrigen;
+	IF MISSING(depurar) THEN
+		OUTPUT;
+	RUN;
+%MEND HOMOLOGAR_INFORMACION;
+
+%MACRO CONTAR_NULOS(TablaOrigen			=/*CON Libreria, donde se contarán los nulos*/);
+	%GLOBAL LISTA_VARIABLES_TODAS;
+
+	%LET patronLibreria 	= %SYSFUNC(PRXPARSE(s/\..*$//));
+	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+								TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+								TipoDato		= TODAS,
+								VariableConteo	= CONTEOS_CHAR);
+
+	%LET condicionMissing 		=%STR();
+
+	%DO contadorI = 1 %TO %SYSFUNC(COUNTW(&LISTA_VARIABLES_TODAS));
+		%LET condicionMissing	=&condicionMissing IF %STR(MISSING)(%SCAN(&LISTA_VARIABLES_TODAS, &contadorI, %STR( ))) THEN conteoNulo + 1 %STR(;);
+	%END;
+
+	DATA &TablaOrigen;
+	SET &TablaOrigen;
+		conteoNulo = 0;
+
+		&condicionMissing;
+	RUN;
+%MEND CONTAR_NULOS;
+
+%MACRO DEPURAR_NULOS(TablaOrigen			=/*CON Libreria, donde se escribirán los cambios*/,
+						CamposVerificadores	=/*Separados por espacios si son más de uno*/,
+						SeparadorCampos		=/*Por defecto es espacio*/%STR( ));
+	%GLOBAL LISTA_VARIABLES_TODAS;
+	%GLOBAL CONTEOS_CHAR;
+
+	%LET patronLibreria 	= %SYSFUNC(PRXPARSE(s/\..*$//));
+	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+
+	%PRIMEROS_CALCULOS(LibreriaOrigen 			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+								TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+								TipoDato		= TODAS,
+								VariableConteo	= CONTEOS_CHAR);
+
+	%LET columnasOriginales	= &LISTA_VARIABLES_TODAS;							
+							
+	%LET camposVerifRenombrados 				=%STR();
+	%LET condicionIsEqual						=%STR();
+
+	%DO contadorI = 1 %TO %SYSFUNC(COUNTW(&CamposVerificadores, &SeparadorCampos));
+		%LET variableActual			=%SCAN(&CamposVerificadores, &contadorI, &SeparadorCampos);
+
+		%LET camposVerifRenombrados 	=&camposVerifRenombrados &variableActual %STR(=) &variableActual._R;
+
+		%LET condicionIsEqual			=&condicionIsEqual &variableActual EQ &variableActual._R;
+
+		%IF &contadorI NE %SYSFUNC(COUNTW(&CamposVerificadores, &SeparadorCampos)) %THEN
+		%DO;
+			%LET condicionIsEqual		=&condicionIsEqual AND;
+		%END;
+	%END;
+
+	DATA &TablaOrigen (KEEP = &columnasOriginales conteoNulo);
+	SET &TablaOrigen;
+		retain cantRenglones;
+
+		IF _N_ EQ 1 THEN
+		DO;
+			ptrTabla 		= OPEN('&TablaOrigen');
+			cantRenglones 	= ATTRN(ptrTabla, 'NOBS');
+			ptrCierre 		= CLOSE(ptrTabla);
+		END;
+
+		renglonSiguiente	= _N_ + 1;
+		
+		IF _N_ NE cantRenglones THEN
+		DO;
+			SET &TablaOrigen (RENAME=(
+				&camposVerifRenombrados
+				conteoNulo = conteoNulo_r
+			)) POINT = renglonSiguiente; 
+
+			IF &condicionIsEqual THEN
+			DO;
+				IF conteoNulo <= conteoNulo_r THEN
+				DO;
+					OUTPUT;
+				END;
+			END;
+			ELSE
+			DO;
+				OUTPUT;
+			END;
+		END;
+		ELSE
+		DO;
+			OUTPUT;
+		END;
+	RUN;
+%MEND DEPURAR_NULOS;
+
+%MACRO TABLA_DE_PASO(NombreTabla	=/*CON LIBRERIA Donde se guardara la tabla*/,
+					DatosLineales	=/*Datos que se le insertaran a la tabla, será un vector*/NULO,
+					SeparadorDatLin	=/*Por defecto es espacio*/%STR( ),
+					NomColLineal	= /*Nombre que recibirá el conjunto de datos, por defecto es COL1*/COL1,
+					DatosQuery		=/*La tabla se llenará de acuerdo a un Subquery*/NULO);
+	%LET patronComillado			= %SYSFUNC(PRXPARSE(s/\%STR(%')|\%STR(%")/%STR()/));
+						
+	%LET datoLinealVerif			=%SCAN(&DatosLineales, 1, &SeparadorDatLin);
+	%LET datoQueryVerif				=%QSCAN(&DatosQuery, 1, %STR( ));
+	%LET datoLinealVerif			=%SYSFUNC(PRXCHANGE(&patronComillado, -1, &datoLinealVerif));
+	%LET datoQueryVerif				=%SYSFUNC(PRXCHANGE(&patronComillado, -1, &datoQueryVerif));
+
+	%LET tablaCreada				=0;
+
+	/*%IF &SeparadorDatLin NE %STR( ) %THEN
+	%DO;
+		%LET regexComa				= %SYSFUNC(PRXPARSE(s/%STR(,)/%STR( )/));
+		%LET DatosLineales 			= %SYSFUNC(PRXCHANGE(&regexComa, -1, &DatosLineales));
+	%END;*/
+
+	%IF "&datoLinealVerif" NE "NULO" %THEN
+	%DO;
+		%LET aisgnacion				=%STR();
+
+		%DO indexI = 1 %TO %SYSFUNC(COUNTW(&DatosLineales, &SeparadorDatLin));
+			%LET aisgnacion			=&aisgnacion &NomColLineal %STR(=) %SCAN(&DatosLineales, &indexI, &SeparadorDatLin) %STR(;) OUTPUT %STR(;);
+		%END;
+
+		DATA &NombreTabla;
+			LENGTH &NomColLineal $100;
+
+			&aisgnacion
+			;
+		RUN;
+
+		%LET tablaCreada			=1;
+	%END;
+
+	%IF "&datoQueryVerif" NE "NULO" %THEN
+	%DO;
+		PROC SQL;
+			CREATE TABLE &NombreTabla AS
+				&DatosQuery;
+		QUIT;
+
+		%LET tablaCreada			=1;
+	%END;
+
+	%IF &tablaCreada EQ 1 %THEN
+	%DO;
+		%IF NOT %SYMEXIST(STACK_TABLAS) %THEN
+		%DO;
+			%GLOBAL STACK_TABLAS;
+
+			%LET STACK_TABLAS		=%STR();
+		%END;
+
+		%LET existeEnStack			=0;
+
+		%NOT_IN(ObjetoBuscable		=&NombreTabla,
+				ListaDeObjetos		=&STACK_TABLAS,
+				SepadorObjetos		=%STR( ),
+				VariableBandera		=existeEnStack);
+
+		%IF &existeEnStack EQ 0 %THEN
+			%LET STACK_TABLAS			=&STACK_TABLAS &NombreTabla;
+	%END;
+%MEND TABLA_DE_PASO;
+
+%MACRO BORRAR_TABLA_DE_PASO(NombreTabla	= /*CON Libreria, tabla la cual se va a borrar, de colocar TODAS se borran todas*/);
+	%LET tablaBorrable				=%SCAN(&NombreTabla, 1, %STR( ));
+	%LET tablaABorrar				=&NombreTabla;
+
+	%IF "&tablaBorrable" EQ "TODAS" %THEN
+	%DO;
+		%LET tablaABorrar			=%STR();
+
+		%DO indexI = 1 %TO %SYSFUNC(COUNTW(&STACK_TABLAS));
+			%LET tablaABorrar		=&tablaABorrar %SCAN(&STACK_TABLAS, &indexI, %STR( ));
+		%END;
+
+		%LET STACK_TABLAS			=%STR();
+	%END;
+	%DO;
+		%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
+		%LET patronTabla 			= %SYSFUNC(PRXPARSE(s/^.*\.//) );
+
+		%LET soloLibreria			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&NombreTabla));
+		%LET soloTabla				= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&NombreTabla));
+
+		%LET patronTablaBorrar		=%SYSFUNC(PRXPARSE(s/&soloLibreria\.&soloTabla//) );
+		%LET STACK_TABLAS			=%SYSFUNC(STRIP(%SYSFUNC(COMPBL(%SYSFUNC(PRXCHANGE(&patronTablaBorrar, -1, &STACK_TABLAS))))));
+	%END;
+
+	PROC DELETE DATA =
+		&tablaABorrar;
+	RUN;
+%MEND BORRAR_TABLA_DE_PASO;
+
+%MACRO NOT_IN(ObjetoBuscable	= /*Lo que se buscará que NO esté en la lista*/,
+				ListaDeObjetos	= /*Donde se buscará el ObjetoBuscable*/,
+				SepadorObjetos	= /*Elemento que separa en la lista*/,
+				VariableBandera	= /*Donde se colocará el resultado de la operación*/);
+ 
+	%LET limite					= %SYSFUNC(COUNTW(&ListaDeObjetos, &SepadorObjetos));
+ 
+	%DO iteradorI = 1 %TO &limite;
+		%LET objetoEnTurno		= %SCAN(&ListaDeObjetos, &iteradorI, &SepadorObjetos);
+ 
+		%IF &ObjetoBuscable EQ &objetoEnTurno %THEN
+		%DO;
+			%LET &VariableBandera =1;
+			%RETURN();
+		%END;
+	%END;
+ 
+	%LET &VariableBandera =0;
+%MEND NOT_IN;
+
+%MACRO RESPALDAR(TablaOrigen		=/*CON Libreria, la cual se respaldará */,
+					Versiones		=/*Por defecto se guardarán 2 versiones historica */2,
+					RutaRespaldos 	=/*Por defecto es en el modelo de datos/Respaldos */'/data/MD Capital Humano/Respaldos/');
+	%LET prefijoRespaldos	= MDR_; 
+
+	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+	%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
+
+	%LET nombreTabla 		= %SYSFUNC(PRXCHANGE(&patronTabla, -1, &TablaOrigen)); 
+	%LET nombreLibreria		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1, &TablaOrigen)); 
+
+	PROC SQL NOPRINT;
+		SELECT
+			COUNT(T.MEMNAME)
+		INTO
+			:CONTEO_RESP
+		FROM
+			DICTIONARY.TABLES T
+		WHERE
+			T.LIBNAME EQ "&nombreLibreria"	AND
+			T.MEMNAME LIKE "&prefijoRespaldos" || "&nombreTabla" || "_V" || "%";
+	QUIT;
+
+	%IF &CONTEO_RESP > 0 %THEN
+	%DO;
+		PROC SQL NOPRINT;
+			SELECT
+				T.MEMNAME
+			INTO
+				:TABLAS_RESP separated by " "
+			FROM
+				DICTIONARY.TABLES T
+			WHERE
+				T.LIBNAME EQ "&nombreLibreria"	AND
+				T.MEMNAME LIKE "&prefijoRespaldos" || "&nombreTabla" || "_V" || "%"
+			HAVING
+				T.MODATE EQ MIN(T.MODATE)	AND
+				COUNT(T.MEMNAME) >= &Versiones;
+		QUIT;
+
+		%IF &CONTEO_RESP < &Versiones %THEN
+		%DO;
+			%LET nombTabResp		=&nombreLibreria..&prefijoRespaldos.&nombreTabla._V%EVAL(&CONTEO_RESP+1);
+
+			DATA &nombTabResp %STR(;) ;
+			SET &TablaOrigen;
+
+			RUN;
+		%END;
+		%ELSE
+		%DO;
+			%LET nombTabResp		=&nombreLibreria..&TABLAS_RESP;
+
+			DATA &nombreLibreria..&TABLAS_RESP;
+			SET &TablaOrigen;
+
+			RUN;
+		%END;
+	%END;
+	%ELSE
+	%DO;
+		%LET nombTabResp			=&nombreLibreria..&prefijoRespaldos.&nombreTabla._V1;
+
+		DATA &nombTabResp;
+		SET &TablaOrigen;
+
+		RUN;
+	%END;
+
+	%IF %SYMEXIST(ultTabResp) NE 0 %THEN
+		%LET ultTabResp		=&nombTabResp;
+%MEND RESPALDAR;
+
+%MACRO RESTAURAR_RESPALDO(TablaOrigen	=/*CON Libreria, tabla donde se restaurará el respaldo*/,
+							Version		=/*CON Libreria, si se quiere restaurar una en particular, de lo contrario de toma la más reciente*/NULA);
+	%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
+	%LET patronTabla 			= %SYSFUNC(PRXPARSE(s/^.*\.//) );
+
+	%LET soloLibreria			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen));
+	%LET soloTabla				= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen));
+
+	%LET TABLA_RESTAURADORA		=%STR();
+
+	%LET prefijoRespaldos	= MDR_; 
+	
+	%IF "&Version" EQ "NULA" %THEN
+	%DO;
+		%LET CONTEO_RESP_REST		=0;
+
+		PROC SQL NOPRINT;
+			SELECT
+				COUNT(T.MEMNAME)
+			INTO
+				:CONTEO_RESP_REST
+			FROM
+				DICTIONARY.TABLES T
+			WHERE
+				T.LIBNAME EQ "&soloLibreria"	AND
+				T.MEMNAME LIKE "&prefijoRespaldos" || "&soloTabla" || "_V" || "%";
+		QUIT; 
+
+		%IF &CONTEO_RESP_REST NE 0 %THEN
+		%DO;
+			PROC SQL NOPRINT;
+			SELECT
+				T.MEMNAME
+			INTO
+				:TABLA_RESTAURADORA
+			FROM
+				DICTIONARY.TABLES T
+			WHERE
+				T.LIBNAME EQ "&soloLibreria"									AND
+				T.MEMNAME LIKE "&prefijoRespaldos" || "&soloTabla" || "_V" || "%"
+			HAVING
+				T.MODATE EQ MAX(MODATE);
+			QUIT;
+
+			DATA &TablaOrigen;
+			SET &soloLibreria..&TABLA_RESTAURADORA;
+
+			RUN;
+		%END;
+		%ELSE
+		%DO;
+			%PUT >>>> NO HAY NINGUNA VERSION A RESTAURAR;
+			%RETURN;
+		%END;
+	%END;
+	%ELSE
+	%DO;
+		PROC SQL NOPRINT;
+			SELECT
+				CATS("&soloLibreria", ".", T.MEMNAME)
+			INTO
+				:TABLA_RESTAURADORA
+			FROM
+				DICTIONARY.TABLES T
+			WHERE
+				T.LIBNAME EQ "&soloLibreria"												AND
+				T.MEMNAME LIKE "&prefijoRespaldos" || "&soloTabla" || "_" || "&Version" || "%"
+			HAVING
+				T.MODATE EQ MAX(MODATE);
+		QUIT;
+
+		%PUT >>>> TABLA_RESTAURADORA &TABLA_RESTAURADORA;
+
+		%IF %LENGTH(&TABLA_RESTAURADORA) > 0 %THEN
+		%DO;
+			DATA &TablaOrigen;
+			SET &TABLA_RESTAURADORA;
+
+			RUN;
+		%END;
+		%ELSE
+		%DO;
+			%PUT >>>> NO HAY NINGUNA VERSION A RESTAURAR;
+			%RETURN;
+		%END;
+	%END;
+%MEND RESTAURAR_RESPALDO;
+
+%MACRO BORRAR_RESPALDOS(LibreriaOrigen	=/*SIN comillas, donde se encuentran las tablas a borrar*/,
+						TablaOrigen		=/*SIN Libreria, de ser varias, separadas por espacio, de ser todas, colocar TODAS */,
+						Cantidad		=/*De no especificarse se tomara el valor por defecto (2) y de especificarse se tomará la(s) más vieja(s)*/2);
+	%LET chequeo				=%SCAN(&TablaOrigen, 1, %STR( ));
+
+	%LET prefijoRespaldos		=MDR_;  
+
+	%LET condicionCantidad		=%STR();
+
+	%LET TABLAS_DEL				=%STR();
+
+	%LET limiteIterador			=0;
+
+	%IF "&chequeo" EQ "TODAS" %THEN
+	%DO;
+		%LET limiteIterador		=1;
+
+		%LET TablaOrigen		=%STR();
+	%END;
+	%ELSE 
+	%DO;
+		%LET limiteIterador		=%SYSFUNC(COUNTW(&TablaOrigen));
+
+		%LET condicionCantidad	=%STR(AND MONOTONIC)() LE &Cantidad;
+	%END;
+							
+	%DO i = 1 %TO &limiteIterador;
+		%LET tablaActual	=%SCAN(&TablaOrigen, &i, %STR( ));
+
+		PROC SQL;
+			SELECT
+				CATS("&LibreriaOrigen",".", T.MEMNAME)
+			INTO
+				:TABLAS_DEL separated by " "
+			FROM
+				DICTIONARY.TABLES T
+			WHERE
+				T.LIBNAME EQ "&LibreriaOrigen"									AND
+				T.MEMNAME LIKE "&prefijoRespaldos" || "&tablaActual" || "%"
+				&condicionCantidad
+				;
+		QUIT;
+
+		PROC DELETE DATA =
+			&TABLAS_DEL;
+		RUN;
+	%END;
+%MEND BORRAR_RESPALDOS;
+
+/*Esta funcion se utiliza para conocer el tipado de un columna*/
+/*TIPO: Publica*/
+/*REQUIERE: Nada en particular*/
+/*RESULTADO:  C, N o ""*/
+%MACRO TIPADO_COL(TablaOrigen		= /*CON Libreria*/,
+				 	Columna			= /*Donde se checará el tipado*/,
+					Colector		= /*Donde se depositará el resultado*/);
+						
+	%IF %SYSFUNC(INDEXC(%SUPERQ(Columna), %STR(%"))) GT 0 %THEN
+	%DO;
+		%LET patronSinP	=s/%STR(%")n$/%STR(%")/;
+	%END;
+	%ELSE
+	%DO;
+		%LET patronSinP	=s/%STR(%')n$/%STR(%')/;
+	%END;
+						
+	%LET patronLiteral	=%SYSFUNC(PRXPARSE(&patronSinP));
+	%LET Columna		=%SYSFUNC(PRXCHANGE(&patronLiteral, -1, %SUPERQ(Columna)));
+						
+	DATA _NULL_;
+	SET &TablaOrigen (OBS = 1);
+		IF NOT MISSING(&Columna) THEN
+		DO;
+			tipo = VTYPEX(&Columna);
+
+			CALL SYMPUT("&Colector", tipo);
+
+			STOP;
+		END;
+	RUN;
+
+	%SYSCALL PRXFREE(patronLiteral);
+%MEND TIPADO_COL;
+
+/*Esta funcion se utiliza cuando NO se conoce si una tabla tiene una columna con el formato deseado*/
+/*TIPO: Publica*/
+/*REQUIERE: MacroExcelPorIndices*/
+/*RESULTADO:  0, 1*/
+%MACRO VERIFICAR_CON_REGEX(TablaOrigen	=/*CON Libreria */,
+							Columna		=/*Donde se hará la verificación*/,
+							Regex		=/*SIN Parsear y enviado con %SUPERQ*/,
+							DatosLeidos	=/*Cantidad de datos a leer secuencialmente*/,
+							Colector	=/*Donde se pondrá el resultado*/,
+							Umbral		=/*De aceptación de datos*/2);
+	%LET conteoTotal	=	0;
+								
+	DATA _NULL_;
+	SET &TablaOrigen;
+		RETAIN regexParseada contador;
+
+		IF _N_ EQ 1 THEN
+		DO;
+			regexParseada = PRXPARSE("&Regex");
+		END;
+
+		IF PRXMATCH(regexParseada, &Columna) THEN
+		DO;
+			contador + 1;
+		END;
+
+		IF _N_ EQ &DatosLeidos THEN
+		DO;
+			CALL SYMPUT("conteoTotal", contador);
+
+			STOP;
+		END;
+	RUN;
+
+	%IF &conteoTotal GE %EVAL(&DatosLeidos - &Umbral) %THEN
+	%DO;
+		%LET &Colector	= 1;
+	%END;
+	%ELSE
+	%DO;
+		%LET &Colector	= 0;
+	%END;
+%MEND VERIFICAR_CON_REGEX;
+
+/*Esta funcion se utiliza cuando NO se conoce si una tabla tiene una columna con el formato deseado*/
+/*TIPO: Publica*/
+/*REQUIERE: MacroExcelPorIndices*/
+/*RESULTADO:  'Columna'n o "Columna"n (Nombre de columna), NE (No Encontrado)*/
+%MACRO VERIFICAR_TIPADO(TablaOrigen			=/*CON Libreria, donde se verificará el dato*/,
+						RegexDatoDeseado	=/*SIN parsear, enviado con %SUPERQ*/,
+						DatosLeidos			=/*Por defecto son 10, en modo secuencial*/10,
+						TipoDato			=/*CON Comillas Si se desea un tipo de dato específico*/%STR(),
+						Colector			=/*Variable donde se depositará el resultado*/);
+						
+	%LET patronLibreria 	= %SYSFUNC(PRXPARSE(s/\..*$//));
+	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
+
+	%LET banderaTip			= 0;
+
+	%LET coincidenciaRegex	= 0;
+							
+	%CALCULAR_VARIABLES(LibreriaOrigen 		= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&TablaOrigen)),
+							TablaOrigen 	= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen)),
+							Separador		=%STR("|"),
+							TipoDato		= TODAS);
+							
+	%IF %LENGTH(%SUPERQ(TipoDato)) GT 0 %THEN
+	%DO;
+		%LET banderaTip						= 1;
+
+		%LET tipadoCol						=%STR();
+	%END;
+
+	%DO iVT = 1 %TO %SYSFUNC(COUNTW(%SUPERQ(LISTA_VARIABLES_TODAS), %STR(|)));
+		%LET columnaAct					=%SCAN(%SUPERQ(LISTA_VARIABLES_TODAS), &iVT, %STR(|));
+
+		%VERIFICAR_CON_REGEX(TablaOrigen	=&TablaOrigen,
+								Columna		=&columnaAct,
+								Regex		=%SUPERQ(RegexDatoDeseado),
+								DatosLeidos	=&DatosLeidos,
+								Colector	=coincidenciaRegex);
+
+		%IF &coincidenciaRegex EQ 1 %THEN
+		%DO;
+			%IF &banderaTip EQ 1 %THEN
+			%DO;
+				%TIPADO_COL(TablaOrigen		= &TablaOrigen,
+					Columna					= &columnaAct,
+					Colector				=tipadoCol);
+
+				%IF "&tipadoCol" EQ &TipoDato %THEN
+				%DO;
+					%LET &Colector			=&columnaAct;
+
+					%RETURN;
+				%END;
+			%END;
+			%ELSE
+			%DO;
+				%LET &Colector				=&columnaAct;
+
+				%RETURN;
+			%END;
+		%END;
+	%END;
+
+	%LET &Colector							=NE;
+%MEND VERIFICAR_TIPADO;
+
+/*Esta funcion se utiliza para crear una columna a partir de otra y siguiendo ciertas transformaciones*/
+/*TIPO: Publica*/
+/*REQUIERE: Nada*/
+/*RESULTADO:  Una nueva columna en la tabla designada*/
+%MACRO CREAR_COL_TRANS(TablaDestino			=/*CON Libreria, donde se colocará la nueva tabla*/,
+						ColumnaOrigen		=/*Nombre de donde se tomarán los datos*/,
+						ColumnaDestino		=/*Nombre de la columna donde se pondrán los datos*/,
+						TipadoTransf		=/*NUM o CHAR SIN COMILLAS, que se transformará*/,
+						Transformacion		=/*Formato nuevo dado*/);
+	
+	%IF "&TipadoTransf" EQ "NUM" %THEN
+	%DO;
+		%LET comando	=&ColumnaDestino %STR(=) %STR(INPUT)(&ColumnaOrigen, &Transformacion);
+	%END;
+	%ELSE
+	%DO;
+		%LET comando	=&ColumnaDestino %STR(=) %STR(PUT)(&ColumnaOrigen, &Transformacion);
+	%END;
+	
+	DATA &TablaDestino (DROP = &ColumnaOrigen);
+	SET &TablaDestino;
+		&comando;
+	RUN;
+%MEND CREAR_COL_TRANS;
+
+/*Esta funcion se utiliza para crear reacomodar las columnas de una tabla en sí misma*/
+/*TIPO: Publica*/
+/*REQUIERE: Macro TABLA_DE_PASO (mismo archivo Macro)*/
+/*RESULTADO:  La misma tabla con otro orden de columnas*/
+%MACRO REACOMODO_COLS(TablaOrigen	=/*CON Libreria, de donde se tomará la información y se sobreescribirá*/,
+						OrdenNvoCol	=/*Selección de columnas, con formato SQL* Ej. COL1, COL2, etc o COL1, T.* el alias (T) aplica a la TablaOrigen*/);
+	%LET patronTabla 				= %SYSFUNC(PRXPARSE(s/^.*\.//));
+	
+	%LET tdpTemp					= WORK.%SYSFUNC(PRXCHANGE(&patronTabla, -1, &TablaOrigen));
+
+	%LET comandoSql					= SELECT &OrdenNvoCol FROM &TablaOrigen T;
+						
+	%TABLA_DE_PASO(NombreTabla		=&tdpTemp,
+					DatosQuery		=&comandoSql);	
+
+	DATA &TablaOrigen;
+	SET &tdpTemp;
+
+	RUN;
+
+	%BORRAR_TABLA_DE_PASO(NombreTabla	= &tdpTemp);
+%MEND REACOMODO_COLS;

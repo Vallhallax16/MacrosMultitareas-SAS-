@@ -1,0 +1,38 @@
+LIBNAME LIBBITAC "/data/DirTecNeg/Bitacoras/Tablas";
+
+%MACRO CONECTAR_BD(libreria=);
+	DATA _NULL_;  
+	SET LIBBITAC.BASESORACLE (WHERE = (LIBRERIA="&libreria."));
+		CALL SYMPUTX('CONECTOR',BASE);
+		CALL SYMPUTX('USUARIO',USUARIO);  
+		CALL SYMPUTX('PASSWORD',PASSWORD);  
+		CALL SYMPUTX('PATH',PATH);  
+		CALL SYMPUTX('LIBNAME',LIBNAME);  
+		CALL SYMPUTX('SCHEMA',SCHEMA);
+	RUN;
+
+	%IF &CONECTOR = ORACLE %THEN 
+		%LET NAME=PATH;
+	%ELSE %IF &CONECTOR = ODBC %THEN 
+		%LET NAME=DATASRC;
+
+	LIBNAME &LIBNAME &CONECTOR  &NAME.="&PATH."  SCHEMA="&SCHEMA."  USER="&USUARIO." PASSWORD="&PASSWORD." ;
+%MEND CONECTAR_BD;
+
+%MACRO CERRAR_BD(Libname	=/*EN DESUSO, se renombro el atributo a Libreria*/NULO,
+				 Libreria	=WORK.PARAMETRO_FALTANTE);
+
+	%LET libnameObjetivo	=%STR();
+
+	%IF "&Libname" NE "NULO" %THEN
+		%LET criterioUtilizable	=&Libname;
+	%ELSE
+		%LET criterioUtilizable	=&Libreria;
+
+	DATA _NULL_;  
+	SET LIBBITAC.BASESORACLE (WHERE = (LIBRERIA="&criterioUtilizable."));
+		CALL SYMPUTX('libnameObjetivo',LIBNAME);  
+	RUN;
+
+	LIBNAME &libnameObjetivo CLEAR;
+%MEND CERRAR_BD;

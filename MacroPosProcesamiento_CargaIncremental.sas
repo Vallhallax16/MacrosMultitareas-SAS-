@@ -143,20 +143,11 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 	%IF %SYMEXIST(ultTabResp) EQ 0 %THEN
 		%LET ultTabResp		=Sin respaldos;
 
-	%IF &horasEjec GE 3600 %THEN
-	%DO;
-		%LET unidad				=horas;
-		%LET horasEjec			=%SYSEVALF(&horasEjec / 3600);
-	%END;
-	%ELSE %IF &horasEjec GE 60 %THEN
-	%DO;
-		%LET unidad				=minutos;
-		%LET horasEjec			=%SYSEVALF(&horasEjec / 60);
-	%END;
-	%ELSE
-	%DO;
-		%LET unidad				=segundos;
-	%END;
+	%LET unidad					="";
+
+	%CALCULO_TIEMPO_EJEC(HorasEjec				=&horasEjec,
+							ContenedorHorEje	=horasEjec,
+							ContenedorUnidad	=unidad);
 
 	%IF &bloqueos NE 0 %THEN
 	%DO;
@@ -226,21 +217,12 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 						Colector			=seccionUsuarioD);
 	%END;
 
-	%IF &TimestIni EQ . 	OR
-		(&errorTotal NE 0	AND
-		&bloqueos	EQ 0)	%THEN
-	%DO;
-		%LET estado				=ABORTADO;
-	%END;
-	%ELSE %IF (&TimestIni NE . AND &TimestFin EQ .) 	OR
-		&bloqueos 	NE 0							%THEN
-	%DO;
-		%LET estado				=INTERRUMPIDO;
-	%END;
-	%ELSE
-	%DO;
-		%LET estado				=TERMINADO;
-	%END;
+	%LET estado								=%STR();
+
+	%CALCULO_ESTADO(TimestIni				=&TimestIni,
+						errorTotal			=&errorTotal,
+						bloqueos			=&bloqueos,
+						ColectorEdo			=estado);
 
 	%IF &errorTotal NE 0 %THEN
 	%DO;
@@ -306,13 +288,146 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
                     ContenidoHTML   =1);
 %MEND REDACTAR_CORREO;
 
-/*Esta funcion se utiliza para armar listas HTML del correo*/
+/*Esta funcion se utiliza para armar reportes de códigos que no son CRONTAB*/
 /*TIPO: Privada*/
 /*REQUIERE: Nada*/
-/*RESULTADO:  listado HTML*/
-%MACRO LISTA_HTML();
+/*RESULTADO:  seccion HTML con formato*/
+%MACRO REDACTAR_REPORTE(TextosRecuperados	=/*Lo que se recuperó del Log*/,
+						TextosDebug			=/*Lo que se recuperó y el usuario pidio imprimir*/,
+						DebugUsuario		=/*Los textos debugueados por el usuario*/%STR(),
+						CantPrev			=,
+						CantPost			=,
+						PatronReemplazo		=/*SIN PARSEAR*/,
+						TimestIni			=/*Timestamp inicial del proceso*/,
+						TimestFin			=/*Timestamp final del proceso*/,
+						RutaLog				=/*Ruta del archivo Log analizado, para adjuntarlo al correo*/);
+
+%MEND REDACTAR_REPORTE;
+
+/*Esta funcion se utiliza para leer un directorio y sus archivos*/
+/*TIPO: Privada*/
+/*REQUIERE: Nada*/
+/*RESULTADO:  Tabla de archivo*/
+%MACRO LEER_RUTA(Ruta			=/*Donde se leeran los archivos*/,
+					DateTVerif	=/*Datetime despues de la cual se debieron crear los archivos*/,
+					TextoVerif	=/*Texto que se usará para verificar pertenencia al proceso*/NULO);
+	FILENAME dirlist PIPE "stat --format='%w|%n' ""&ruta/""*";
+
+	DATA WORK.ARCHIVOS_EN_DIR;
+		LENGTH linea $500 archivo $300 fechaTxt $40;
+
+		INFILE dirlist TRUNCOVER;
+		INPUT linea $CHAR500.;
+
+		fechaTxt = SCAN(linea, 1, '|');
+		archivo   = SCAN(linea, 2, '|');
+
+		fechaNum = INPUT(fechaTxt, ANYDTDTM.);
+		format fechaNum DATETIME20.;
+	RUN;
+%MEND LEER_RUTA;
+
+/*Esta funcion se utiliza para crear un directorio*/
+/*TIPO: Publica*/
+/*REQUIERE: Nada*/
+/*RESULTADO:  Directorio en la ruta especificada*/
+%MACRO CREAR_DIRECTORIO(Ruta		=/*CON COMILLAS, donde se creara el directorio, por defecto es /data/Macros necesarios/Resultados*/"/data/Macros necesarios/Resultados/",
+						Folder		=/*CON COMILLAS, como se llamará el folder*/,
+						Colector	=/*Donde se depositara el resultado*/);
 	
-%MEND LISTA_HTML;
+	DATA _NULL_;
+		LENGTH rutaBase folder $300;
+
+		rutaBase		=&Ruta;
+		folder			=&Folder;
+
+		resultCreacion	=dcreate(folder,rutaBase);
+
+		PUT resultCreacion=;
+
+		IF NOT MISSING(resultCreacion) THEN
+		DO;
+			CALL SYMPUT("&Colector","1");
+		END;
+		ELSE
+		DO;
+			CALL SYMPUT("&Colector","0");
+		END;
+	RUN;
+%MEND CREAR_DIRECTORIO;
+
+/*Esta funcion se verifica la existencia de un directorio*/
+/*TIPO: Publica*/
+/*REQUIERE: Nada*/
+/*RESULTADO:  0 si la carpeta no existe y 1 si existe*/
+%MACRO VERIFICAR_EXISTENCIA(Ruta			=/*CON COMILLAS, ruta completa con todo y directorio*/,
+							ColectorExis	=/*Donde se depositara el resultado*/);
+	DATA _NULL_;
+		ptr			=FILENAME('directorio', &Ruta);
+		existe		=DOPEN('directorio');
+
+		IF existe GT 0 THEN
+		DO;
+			CALL SYMPUT("&ColectorExis","1");
+			existe	=DCLOSE(existe);
+		END;
+		ELSE
+		DO;
+			CALL SYMPUT("&ColectorExis","0");
+		END;
+
+		ptr = filename('directorio');
+	RUN;
+%MEND VERIFICAR_EXISTENCIA;
+
+/*Esta funcion se utiliza para calcular el tiempo del correo y sus unidades*/
+/*TIPO: Privada*/
+/*REQUIERE: Nada*/
+/*RESULTADO:  variables con unidad y tiempo total*/
+%MACRO CALCULO_ESTADO(TimestIni		=/*Datetime de cuando inicia el proceso*/,
+						errorTotal	=/*Cantidad total de errores en el proceso*/,
+						bloqueos	=/*Cantidad total de bloqueos*/,
+						ColectorEdo	=/*Variable donde se pondrá el estado resultante*/);
+	%IF &TimestIni EQ . 	OR
+		(&errorTotal NE 0	AND
+		&bloqueos	EQ 0)	%THEN
+	%DO;
+		%LET estado				=ABORTADO;
+	%END;
+	%ELSE %IF (&TimestIni NE . AND &TimestFin EQ .) 	OR
+		&bloqueos 	NE 0							%THEN
+	%DO;
+		%LET estado				=INTERRUMPIDO;
+	%END;
+	%ELSE
+	%DO;
+		%LET estado				=TERMINADO;
+	%END;
+%MEND CALCULO_ESTADO;
+
+/*Esta funcion se utiliza para calcular el tiempo del correo y sus unidades/
+/*TIPO: Privada*/
+/*REQUIERE: Nada*/
+/*RESULTADO:  variables con unidad y tiempo total*/
+%MACRO CALCULO_TIEMPO_EJEC(HorasEjec			=/*Tiempo total de ejecucion (VALOR)*/,
+							ContenedorHorEje	=/*Donde se depositará el valor de horas*/,
+							ContenedorUnidad	=/*Donde se depositará la unidad*/);							
+	%IF &HorasEjec GE 3600 %THEN
+	%DO;
+		%LET &ContenedorUnidad	=horas;
+		%LET &ContenedorHorEje	=%SYSEVALF(&HorasEjec / 3600);
+	%END;
+	%ELSE %IF &HorasEjec GE 60 %THEN
+	%DO;
+		%LET &ContenedorUnidad	=minutos;
+		%LET &ContenedorHorEje	=%SYSEVALF(&HorasEjec / 60);
+	%END;
+	%ELSE
+	%DO;
+		%LET &ContenedorUnidad	=segundos;
+		%LET &ContenedorHorEje	=&HorasEjec;
+	%END;
+%MEND CALCULO_TIEMPO_EJEC;
 
 /*Esta funcion se utiliza para armar secciones HTML del correo*/
 /*TIPO: Privada*/

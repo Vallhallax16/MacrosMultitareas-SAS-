@@ -8,8 +8,6 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 %MACRO REPORTAR_EJECUCION(RutaLogs      =/*Para una ruta particular, por defecto es /data/Macros necesarios/Logs*/%STR(/data/Macros necesarios/Logs/),
 							Archivo		=/*SIN comillas, nombre del archivo Log a leer, soporta LIBRERIA.NOMBRE*/,
 							NivelDebug	=/*Soporta NOTE, WARNING, ERROR o TODOS, por defecto es ERROR, de ser varios separar por espacio y SIN comillas*/ERROR,
-							TimestIni	=/*Timestamp inicial del proceso*/,
-							TimestFin	=/*Timestamp final del proceso*/,
 							TituloRep	=/*Titulo que llevará el reporte*/%STR(),
 							FuenteBit	=/*Donde se tomará la cifra inicial de registros*/%STR(),
 							CampoBit	=/*Campo que se tomará para la cifra inicial de registros*/%STR(),
@@ -71,6 +69,8 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 				:CANTIDAD_PREVIOS
 			FROM
 				&FuenteBit T;
+
+			%BORRAR_TABLA_DE_PASO(NombreTabla	= TODAS);
 		%END;
 		%ELSE
 		%DO;
@@ -97,15 +97,32 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 			&tablaBase T;
 	QUIT;
 
-	%REDACTAR_CORREO(TextosRecuperados		= %SUPERQ(informacionDebugSas),
-						TextosDebug			= %SUPERQ(informacionCapturada),
-						CantPrev           	= &CANTIDAD_PREVIOS,
-						CantPost           	= &CANTIDAD_POSTERIORES,
-						PatronReemplazo    	= &esqueletoPatronRem,
-						TimestIni          	= &timestInicial,
-						TimestFin          	= &timestFinal,
-						RutaLog				= &rutaCompleta,
-						CorreoDestinos		= &Destinos);
+	%IF %LENGTH(%SUPERQ(TituloRep)) EQ 0 %THEN
+	%DO;
+		%REDACTAR_CORREO(TextosRecuperados		= %SUPERQ(informacionDebugSas),
+							TextosDebug			= %SUPERQ(informacionCapturada),
+							CantPrev           	= &CANTIDAD_PREVIOS,
+							CantPost           	= &CANTIDAD_POSTERIORES,
+							PatronReemplazo    	= &esqueletoPatronRem,
+							TimestIni          	= &timestInicial,
+							TimestFin          	= &timestFinal,
+							RutaLog				= &rutaCompleta,
+							CorreoDestinos		= &Destinos);
+	%END;
+	%ELSE
+	%DO;
+		%REDACTAR_CORREO(TextosRecuperados		= %SUPERQ(informacionDebugSas),
+							TextosDebug			= %SUPERQ(informacionCapturada),
+							CantPrev           	= &CANTIDAD_PREVIOS,
+							CantPost           	= &CANTIDAD_POSTERIORES,
+							PatronReemplazo    	= &esqueletoPatronRem,
+							TimestIni          	= &timestInicial,
+							TimestFin          	= &timestFinal,
+							RutaLog				= &rutaCompleta,
+							TituloReporte		= &TituloRep,
+							DirectorioArch		= &RutaArch,
+							CorreoDestinos		= &Destinos);
+	%END;
 %MEND REPORTAR_EJECUCION;
 
 %MACRO LEER_LOG(RutaLogs			=/*Se pasa de una función previa*/,
@@ -209,8 +226,8 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 
 			%IF %SYSFUNC(PRXMATCH(&patronProceso, %SUPERQ(textoActual))) %THEN
 			%DO;
-				%LET codigoDeBloqueo = %QSYSFUNC(PRXPOSN(&patronProceso, 1, %SUPERQ(textoActual)));
-				%LET listadoBloqueos	 =&listadoBloqueos%STR(|)&codigoDeBloqueo;
+				%LET codigoDeBloqueo	= %QSYSFUNC(PRXPOSN(&patronProceso, 1, %SUPERQ(textoActual)));
+				%LET listadoBloqueos	=&listadoBloqueos%STR(|)&codigoDeBloqueo;
 			%END;
 		%END;
 		%ELSE
@@ -244,48 +261,51 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 
 		%LET asuntoCorreo		="Resumen &TituloReporte";
 
-		%LEER_RUTA(Ruta			=&DirectorioArch);
-
-		PROC SQL NOPRINT;
-			SELECT
-				COUNT(*)
-			INTO
-				:CONTEO_ARCHIVOS
-			FROM
-				WORK.ARCHIVOS_EN_DIR;
-		QUIT;
-
-		%IF &CONTEO_ARCHIVOS NE 0 %THEN
+		%IF %LENGTH(%SUPERQ(DirectorioArch)) GT 0 %THEN
 		%DO;
+			%LEER_RUTA(Ruta			=&DirectorioArch);
+
 			PROC SQL NOPRINT;
 				SELECT
-					T.Archivo
+					COUNT(*)
 				INTO
-					:LISTADO_ARCH_FIS SEPARATED BY %STR(|)
+					:CONTEO_ARCHIVOS
 				FROM
-					WORK.ARCHIVOS_EN_DIR T;
-			QUIT
-
-			PROC SQL NOPRINT;
-				SELECT 
-					T.Tamanio
-				INTO
-					:LISTADO_TAM_ARCH SEPARATED BY %STR(|)
-				FROM
-					WORK.ARCHIVOS_EN_DIR T;
+					WORK.ARCHIVOS_EN_DIR;
 			QUIT;
 
-			%DO iRC = 1 %TO &CONTEO_ARCHIVOS;
-				%LET archivoActual	=%QSCAN(%SUPERQ(LISTADO_ARCH_FIS), &iRC, %STR(|));
-				%LET tamArchivoAct	=%SCAN(&LISTADO_TAM_ARCH, &iRC, %STR(|));
+			%IF &CONTEO_ARCHIVOS NE 0 %THEN
+			%DO;
+				PROC SQL NOPRINT;
+					SELECT
+						T.Archivo
+					INTO
+						:LISTADO_ARCH_FIS SEPARATED BY %STR(|)
+					FROM
+						WORK.ARCHIVOS_EN_DIR T;
+				QUIT
 
-				%LET listado	=&listado<li>&archivoActual - &tamArchivoAct.B</li>;
+				PROC SQL NOPRINT;
+					SELECT 
+						T.Tamanio
+					INTO
+						:LISTADO_TAM_ARCH SEPARATED BY %STR(|)
+					FROM
+						WORK.ARCHIVOS_EN_DIR T;
+				QUIT;
+
+				%DO iRC = 1 %TO &CONTEO_ARCHIVOS;
+					%LET archivoActual	=%QSCAN(%SUPERQ(LISTADO_ARCH_FIS), &iRC, %STR(|));
+					%LET tamArchivoAct	=%SCAN(&LISTADO_TAM_ARCH, &iRC, %STR(|));
+
+					%LET listado	=&listado<li>&archivoActual - &tamArchivoAct.B</li>;
+				%END;
+
+				%CREAR_SECCION(ColorEncabezado		=%STR(#0bb87b),
+								TituloEncab		=%STR(ARCHIVOS CREADOS:),
+								ListaOpciones	=&listado,
+								Colector		=seccionArchivos);
 			%END;
-
-			%CREAR_SECCION(ColorEncabezado		=%STR(#0bb87b),
-							TituloEncab		=%STR(ARCHIVOS CREADOS:),
-							ListaOpciones	=&listado,
-							Colector		=seccionArchivos);
 		%END;
 	%END;
 	%ELSE

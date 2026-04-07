@@ -407,7 +407,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
                     Adjunto         ="&RutaLog",
                     ContenidoHTML   =1);
 	%ELSE
-		%ENVIO_MAIL(DESTINO         =&CorreoDestinos,
+		%ENVIO_MAIL(DESTINO         =&CorreoDestinos,,
 					Remitente       =&remitenteDEDA,
                     Asunto          =&asuntoCorreo,
                     MSG             =&cuerpoHTML,

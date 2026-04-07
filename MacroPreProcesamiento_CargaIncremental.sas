@@ -19,7 +19,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 /* FIN - VARIABLES CONTROL PARA MACROS */
 
 %MACRO ASIGNAR_FUENTES(FuenteParticular      = /*Especificar una en particular, de lo contrario se asignarán todas con 0*/0);
-   %LET asignaciones =MDCAPIT "/data/MD Capital Humano/"|PEOPLE_A "/data/MD Capital Humano/";
+   %LET asignaciones =MDCAPIT "/data/MD Capital Humano/"|PEOPLE_A "/data/MD Capital Humano/"|GEREN_BI "/data/Gerencia_BI/";   
 
    %IF &FuenteParticular EQ 0 %THEN
    %DO;
@@ -34,6 +34,10 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
    %ELSE %IF &FuenteParticular EQ 2 %THEN
    %DO;
       LIBNAME %SCAN(&asignaciones, 2, %STR(|)); 
+   %END;
+   %ELSE %IF &FuenteParticular EQ 3 %THEN
+   %DO;
+      LIBNAME %SCAN(&asignaciones, 3, %STR(|));
    %END;
 %MEND %ASIGNAR_FUENTES;
 

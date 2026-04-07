@@ -3,12 +3,18 @@ Option Fullstimer;
 OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 
 %INCLUDE '/data/Macros necesarios/MacroMailer.sas';
+%INCLUDE '/data/Macros necesarios/MacroDirectorios.sas';
 
 %MACRO REPORTAR_EJECUCION(RutaLogs      =/*Para una ruta particular, por defecto es /data/Macros necesarios/Logs*/%STR(/data/Macros necesarios/Logs/),
 							Archivo		=/*SIN comillas, nombre del archivo Log a leer, soporta LIBRERIA.NOMBRE*/,
 							NivelDebug	=/*Soporta NOTE, WARNING, ERROR o TODOS, por defecto es ERROR, de ser varios separar por espacio y SIN comillas*/ERROR,
 							TimestIni	=/*Timestamp inicial del proceso*/,
-							TimestFin	=/*Timestamp final del proceso*/);
+							TimestFin	=/*Timestamp final del proceso*/,
+							TituloRep	=/*Titulo que llevará el reporte*/%STR(),
+							FuenteBit	=/*Donde se tomará la cifra inicial de registros*/%STR(),
+							CampoBit	=/*Campo que se tomará para la cifra inicial de registros*/%STR(),
+							RutaArch	=/*Ruta donde se revisarán los archivos creados, CON comillas*/%STR(),
+							Destinos	=/*Por defecto es solo a david.velazquez@profuturo.com.mx*/"david.velazquez@profuturo.com.mx");
 	%LET patronTabla 				= %SYSFUNC(PRXPARSE(s/^.*\.//));
 	%LET Archivo					= %SYSFUNC(PRXCHANGE(&patronTabla, -1, &Archivo));
 
@@ -57,17 +63,29 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 				Colector			=informacionCapturada);
 
 	PROC SQL NOPRINT;
-		SELECT
-			T.REGISTRO_FIN
-		INTO
-			:CANTIDAD_PREVIOS
-		FROM
-			MDCAPIT.BITACORA_INCREMENTAL T
-		WHERE
-			UPPER(T.CONCEPTO_OP) LIKE "ANTES%"		AND
-			T.TABLA_AFECTADA EQ "&tablaBase"		AND
-			T.FECHA_EJEC BETWEEN &timestInicial		AND
-				&timestFinal;
+		%IF %LENGTH(%SUPERQ(TituloRep)) GT 0 %THEN
+		%DO;
+			SELECT
+				T.&CampoBit
+			INTO
+				:CANTIDAD_PREVIOS
+			FROM
+				&FuenteBit T;
+		%END;
+		%ELSE
+		%DO;
+			SELECT
+				T.REGISTRO_FIN
+			INTO
+				:CANTIDAD_PREVIOS
+			FROM
+				MDCAPIT.BITACORA_INCREMENTAL T
+			WHERE
+				UPPER(T.CONCEPTO_OP) LIKE "ANTES%"		AND
+				T.TABLA_AFECTADA EQ "&tablaBase"		AND
+				T.FECHA_EJEC BETWEEN &timestInicial		AND
+					&timestFinal;
+		%END;
 	QUIT;
 
 	PROC SQL NOPRINT;
@@ -86,7 +104,8 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 						PatronReemplazo    	= &esqueletoPatronRem,
 						TimestIni          	= &timestInicial,
 						TimestFin          	= &timestFinal,
-						RutaLog				= &rutaCompleta);
+						RutaLog				= &rutaCompleta,
+						CorreoDestinos		= &Destinos);
 %MEND REPORTAR_EJECUCION;
 
 %MACRO LEER_LOG(RutaLogs			=/*Se pasa de una función previa*/,
@@ -122,7 +141,10 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 						PatronReemplazo		=/*SIN PARSEAR*/,
 						TimestIni			=/*Timestamp inicial del proceso*/,
 						TimestFin			=/*Timestamp final del proceso*/,
-						RutaLog				=/*Ruta del archivo Log analizado, para adjuntarlo al correo*/);
+						RutaLog				=/*Ruta del archivo Log analizado, para adjuntarlo al correo*/,
+						TituloReporte		=/*Título del reporte*/%STR(),
+						DirectorioArch		=/*Donde se revisarán los archivos creados*/%STR(),
+						CorreoDestinos		=/*Destinatarios del correo, por defecto es solo a david.velazquez*/);	
 	%LET listado				=%STR();
 
 	%LET estado					=%STR();
@@ -133,6 +155,18 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 
 	%LET horasEjec				=%SYSEVALF(&TimestFin - &TimestIni);
 	%LET horasEjec				=%SYSFUNC(FLOOR(&horasEjec));
+
+	%LET colorTabFondo			=%STR();
+	%LET colorTxtTd				=%STR();
+	%LET colorFndTd				=%STR();
+
+	%LET tituloTabla			=%STR();
+
+	%LET remitenteDEDA			=%STR();
+
+	%LET asuntoCorreo			=%STR();	
+
+	%LET estadisRespaldo		=%STR();	
 
 	%IF %SYMEXIST(CANTIDAD_POSTERIORES) EQ 0 %THEN
 		%LET CANTIDAD_POSTERIORES=Sin datos;
@@ -188,6 +222,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 	%LET seccionErrores			=%STR();
 	%LET seccionBloqueos		=%STR();
 	%LET seccionUsuarioD		=%STR();
+	%LET seccionArchivos		=%STR();
 
 	%IF %LENGTH(%SUPERQ(listado)) GT 0 %THEN
 	%DO;
@@ -195,6 +230,77 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 							TituloEncab		=ERRORES,
 							ListaOpciones	=&listado,
 							Colector		=seccionErrores);
+	%END;
+
+	%IF %LENGTH(%SUPERQ(TituloReporte)) GT 0 %THEN
+	%DO;
+		%LET colorTabFondo		=%STR(#fdffdb);
+		%LET colorTxtTd			=%STR(#FFFFFF);
+		%LET colorFndTd			=%STR(#717121);
+
+		%LET tituloTabla		=&TituloReporte;
+
+		%LET remitenteDEDA		="DEDA@REPORTES.CAWN";
+
+		%LET asuntoCorreo		="Resumen &TituloReporte";
+
+		%LEER_RUTA(Ruta			=&DirectorioArch);
+
+		PROC SQL NOPRINT;
+			SELECT
+				COUNT(*)
+			INTO
+				:CONTEO_ARCHIVOS
+			FROM
+				WORK.ARCHIVOS_EN_DIR;
+		QUIT;
+
+		%IF &CONTEO_ARCHIVOS NE 0 %THEN
+		%DO;
+			PROC SQL NOPRINT;
+				SELECT
+					T.Archivo
+				INTO
+					:LISTADO_ARCH_FIS SEPARATED BY %STR(|)
+				FROM
+					WORK.ARCHIVOS_EN_DIR T;
+			QUIT
+
+			PROC SQL NOPRINT;
+				SELECT 
+					T.Tamanio
+				INTO
+					:LISTADO_TAM_ARCH SEPARATED BY %STR(|)
+				FROM
+					WORK.ARCHIVOS_EN_DIR T;
+			QUIT;
+
+			%DO iRC = 1 %TO &CONTEO_ARCHIVOS;
+				%LET archivoActual	=%QSCAN(%SUPERQ(LISTADO_ARCH_FIS), &iRC, %STR(|));
+				%LET tamArchivoAct	=%SCAN(&LISTADO_TAM_ARCH, &iRC, %STR(|));
+
+				%LET listado	=&listado<li>&archivoActual - &tamArchivoAct.B</li>;
+			%END;
+
+			%CREAR_SECCION(ColorEncabezado		=%STR(#0bb87b),
+							TituloEncab		=%STR(ARCHIVOS CREADOS:),
+							ListaOpciones	=&listado,
+							Colector		=seccionArchivos);
+		%END;
+	%END;
+	%ELSE
+	%DO;
+		%LET colorTabFondo		=%STR(#DBF2FF);
+		%LET colorTxtTd			=%STR(#FFFFFF);
+		%LET colorFndTd			=%STR(#213A71);
+
+		%LET tituloTabla		=&tablaBase;
+
+		%LET remitenteDEDA		="DEDA@CRONTABS.CAWN";
+
+		%LET asuntoCorreo		="Carga en tabla &tablaBase";
+
+		%LET estadisRespaldo	=%STR(<tr><td style='padding:5px 10px;'><strong>Version respaldo:</strong> )&ultTabResp%STR(</td></tr>);
 	%END;
 
 	%IF %LENGTH(%SUPERQ(TextosDebug)) GT 0 %THEN
@@ -264,7 +370,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 						Colector		=seccionBloqueos);
 	%END;
 
-	%LET cuerpoHTML = "<html><body><table width='600' cellpadding='0' cellspacing='0' border='0' style='font-family: Arial, sans-serif; font-size:14px; color:#000000; background-color:#DBF2FF;'><tr><td align='center' style='font-size:24px; font-weight:bold; padding:20px 0; background-color:#213A71; color:#FFFFFF;'>&tablaBase</td></tr><tr><td style='padding:5px 10px;'><strong>Hora de inicio:</strong> &timestIniTxt</td></tr><tr><td style='padding:5px 10px;'><strong>Hora final:</strong> &timestFinTxt</td></tr><tr><td style='padding:5px 10px;'><strong>Tiempo total de ejecucion: </strong> &horasEjec &unidad</td></tr><tr><td style='padding:5px 10px;'><strong>Version respaldo:</strong> &ultTabResp</td></tr><tr><td style='padding:5px 10px;'><strong>Estado:</strong> &estado</td></tr><tr><td style='padding-bottom:20px;'><br></td></tr><tr><td style='padding:5px 10px;'>Servidor &SYSTCPIPHOSTNAME y proceso &SYSJOBID</td></tr><tr><td style='padding-bottom:20px;'><br></td></tr><tr><td style='padding:5px 10px;'>Renglones previos a insercion: &CantPrev</td></tr><tr><td style='padding:5px 10px;'>Renglones posteriores a insercion: &CantPost</td></tr><tr><td style='padding-bottom:30px;'><br></td></tr>%SUPERQ(seccionErrores)%SUPERQ(seccionBloqueos)%SUPERQ(seccionUsuarioD)</table></body></html>";
+	%LET cuerpoHTML = "<html><body><table width='600' cellpadding='0' cellspacing='0' border='0' style=%STR(%')font-family: Arial, sans-serif; font-size:14px; color:#000000; background-color:&colorTabFondo;%STR(%')><tr><td align='center' style=%STR(%')font-size:24px; font-weight:bold; padding:20px 0; background-color:&colorFndTd; color:#FFFFFF;%STR(%')>&tituloTabla</td></tr><tr><td style='padding:5px 10px;'><strong>Hora de inicio:</strong> &timestIniTxt</td></tr><tr><td style='padding:5px 10px;'><strong>Hora final:</strong> &timestFinTxt</td></tr><tr><td style='padding:5px 10px;'><strong>Tiempo total de ejecucion: </strong> &horasEjec &unidad</td></tr>%SUPERQ(estadisRespaldo)<tr><td style='padding:5px 10px;'><strong>Estado:</strong> &estado</td></tr><tr><td style='padding-bottom:20px;'><br></td></tr><tr><td style='padding:5px 10px;'>Servidor &SYSTCPIPHOSTNAME y proceso &SYSJOBID</td></tr><tr><td style='padding-bottom:20px;'><br></td></tr><tr><td style='padding:5px 10px;'>Renglones previos a insercion: &CantPrev</td></tr><tr><td style='padding:5px 10px;'>Renglones posteriores a insercion: &CantPost</td></tr><tr><td style='padding-bottom:30px;'><br></td></tr>%SUPERQ(seccionErrores)%SUPERQ(seccionBloqueos)%SUPERQ(seccionUsuarioD)%SUPERQ(seccionArchivos)</table></body></html>";
 
 	%IF &bloqueos NE 0 %THEN
 	%DO;
@@ -274,111 +380,19 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 
 	/* Determinar si se adjunta el log */
 	%IF %LENGTH(%SUPERQ(RutaLog)) GT 0 AND %SYSFUNC(FILEEXIST(%SUPERQ(RutaLog))) %THEN
-		%ENVIO_MAIL(DESTINO         ="david.velazquez@profuturo.com.mx",
-					Remitente       ="DEDA@CRONTABS.CAWN",
-                    Asunto          ="Carga en tabla &tablaBase",
+		%ENVIO_MAIL(DESTINO         =&CorreoDestinos,
+					Remitente       =&remitenteDEDA,
+                    Asunto          =&asuntoCorreo,
                     MSG             =&cuerpoHTML,
                     Adjunto         ="&RutaLog",
                     ContenidoHTML   =1);
 	%ELSE
-		%ENVIO_MAIL(DESTINO         ="david.velazquez@profuturo.com.mx",
-					Remitente       ="DEDA@CRONTABS.CAWN",
-                    Asunto          ="Carga en tabla &tablaBase",
+		%ENVIO_MAIL(DESTINO         =&CorreoDestinos,,
+					Remitente       =&remitenteDEDA,
+                    Asunto          =&asuntoCorreo,
                     MSG             =&cuerpoHTML,
                     ContenidoHTML   =1);
 %MEND REDACTAR_CORREO;
-
-/*Esta funcion se utiliza para armar reportes de códigos que no son CRONTAB*/
-/*TIPO: Privada*/
-/*REQUIERE: Nada*/
-/*RESULTADO:  seccion HTML con formato*/
-%MACRO REDACTAR_REPORTE(TextosRecuperados	=/*Lo que se recuperó del Log*/,
-						TextosDebug			=/*Lo que se recuperó y el usuario pidio imprimir*/,
-						DebugUsuario		=/*Los textos debugueados por el usuario*/%STR(),
-						CantPrev			=,
-						CantPost			=,
-						PatronReemplazo		=/*SIN PARSEAR*/,
-						TimestIni			=/*Timestamp inicial del proceso*/,
-						TimestFin			=/*Timestamp final del proceso*/,
-						RutaLog				=/*Ruta del archivo Log analizado, para adjuntarlo al correo*/);
-
-%MEND REDACTAR_REPORTE;
-
-/*Esta funcion se utiliza para leer un directorio y sus archivos*/
-/*TIPO: Privada*/
-/*REQUIERE: Nada*/
-/*RESULTADO:  Tabla de archivo*/
-%MACRO LEER_RUTA(Ruta			=/*Donde se leeran los archivos*/,
-					DateTVerif	=/*Datetime despues de la cual se debieron crear los archivos*/,
-					TextoVerif	=/*Texto que se usará para verificar pertenencia al proceso*/NULO);
-	FILENAME dirlist PIPE "stat --format='%w|%n' ""&ruta/""*";
-
-	DATA WORK.ARCHIVOS_EN_DIR;
-		LENGTH linea $500 archivo $300 fechaTxt $40;
-
-		INFILE dirlist TRUNCOVER;
-		INPUT linea $CHAR500.;
-
-		fechaTxt = SCAN(linea, 1, '|');
-		archivo   = SCAN(linea, 2, '|');
-
-		fechaNum = INPUT(fechaTxt, ANYDTDTM.);
-		format fechaNum DATETIME20.;
-	RUN;
-%MEND LEER_RUTA;
-
-/*Esta funcion se utiliza para crear un directorio*/
-/*TIPO: Publica*/
-/*REQUIERE: Nada*/
-/*RESULTADO:  Directorio en la ruta especificada*/
-%MACRO CREAR_DIRECTORIO(Ruta		=/*CON COMILLAS, donde se creara el directorio, por defecto es /data/Macros necesarios/Resultados*/"/data/Macros necesarios/Resultados/",
-						Folder		=/*CON COMILLAS, como se llamará el folder*/,
-						Colector	=/*Donde se depositara el resultado*/);
-	
-	DATA _NULL_;
-		LENGTH rutaBase folder $300;
-
-		rutaBase		=&Ruta;
-		folder			=&Folder;
-
-		resultCreacion	=dcreate(folder,rutaBase);
-
-		PUT resultCreacion=;
-
-		IF NOT MISSING(resultCreacion) THEN
-		DO;
-			CALL SYMPUT("&Colector","1");
-		END;
-		ELSE
-		DO;
-			CALL SYMPUT("&Colector","0");
-		END;
-	RUN;
-%MEND CREAR_DIRECTORIO;
-
-/*Esta funcion se verifica la existencia de un directorio*/
-/*TIPO: Publica*/
-/*REQUIERE: Nada*/
-/*RESULTADO:  0 si la carpeta no existe y 1 si existe*/
-%MACRO VERIFICAR_EXISTENCIA(Ruta			=/*CON COMILLAS, ruta completa con todo y directorio*/,
-							ColectorExis	=/*Donde se depositara el resultado*/);
-	DATA _NULL_;
-		ptr			=FILENAME('directorio', &Ruta);
-		existe		=DOPEN('directorio');
-
-		IF existe GT 0 THEN
-		DO;
-			CALL SYMPUT("&ColectorExis","1");
-			existe	=DCLOSE(existe);
-		END;
-		ELSE
-		DO;
-			CALL SYMPUT("&ColectorExis","0");
-		END;
-
-		ptr = filename('directorio');
-	RUN;
-%MEND VERIFICAR_EXISTENCIA;
 
 /*Esta funcion se utiliza para calcular el tiempo del correo y sus unidades*/
 /*TIPO: Privada*/
@@ -435,7 +449,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 /*RESULTADO:  seccion HTML con formato*/
 %MACRO CREAR_SECCION(ColorEncabezado	=/*Por defecto es color negro, enviado con %STR*/%STR(#000000),
 						TituloEncab		=/*Como se llamará la sección*/,
-						ListaOpciones	=/*Contenido de la sección*/,
+						ListaOpciones	=/*Contenido de la sección, YA con etiquetas <li>*/,
 						Colector		=/*Donde se pondrá el contenido HMTL*/);
 
 	%LET secHtml	=%STR(<tr><td style=%'color:)&ColorEncabezado%STR(; font-weight:bold; font-size:18px; padding:5px 10px;%'>)&TituloEncab%STR(:</td></tr>);

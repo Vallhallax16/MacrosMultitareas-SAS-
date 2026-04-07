@@ -1033,11 +1033,9 @@
 	%LET &VariableBandera =0;
 %MEND NOT_IN;
 
-%MACRO RESPALDAR(TablaOrigen		=/*CON Libreria, la cual se respaldará */,
-					Versiones		=/*Por defecto se guardarán 2 versiones historica */2,
-					RutaRespaldos 	=/*Por defecto es en el modelo de datos/Respaldos */'/data/MD Capital Humano/Respaldos/');
-	%LET prefijoRespaldos	= MDR_; 
-
+%MACRO RESPALDAR(TablaOrigen			=/*CON Libreria, la cual se respaldará */,
+					Versiones			=/*Por defecto se guardarán 2 versiones historica */2,
+					PrefijoRespaldos 	=/*SIN COMILAS, por defecto es en el modelo de datos/Respaldos */%STR(MDR_));
 	%LET patronTabla 		= %SYSFUNC(PRXPARSE(s/^.*\.//));
 	%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
 
@@ -1053,7 +1051,7 @@
 			DICTIONARY.TABLES T
 		WHERE
 			T.LIBNAME EQ "&nombreLibreria"	AND
-			T.MEMNAME LIKE "&prefijoRespaldos" || "&nombreTabla" || "_V" || "%";
+			T.MEMNAME LIKE "&PrefijoRespaldos" || "&nombreTabla" || "_V" || "%";
 	QUIT;
 
 	%IF &CONTEO_RESP > 0 %THEN
@@ -1067,7 +1065,7 @@
 				DICTIONARY.TABLES T
 			WHERE
 				T.LIBNAME EQ "&nombreLibreria"	AND
-				T.MEMNAME LIKE "&prefijoRespaldos" || "&nombreTabla" || "_V" || "%"
+				T.MEMNAME LIKE "&PrefijoRespaldos" || "&nombreTabla" || "_V" || "%"
 			HAVING
 				T.MODATE EQ MIN(T.MODATE)	AND
 				COUNT(T.MEMNAME) >= &Versiones;
@@ -1075,7 +1073,7 @@
 
 		%IF &CONTEO_RESP < &Versiones %THEN
 		%DO;
-			%LET nombTabResp		=&nombreLibreria..&prefijoRespaldos.&nombreTabla._V%EVAL(&CONTEO_RESP+1);
+			%LET nombTabResp		=&nombreLibreria..&PrefijoRespaldos.&nombreTabla._V%EVAL(&CONTEO_RESP+1);
 
 			DATA &nombTabResp %STR(;) ;
 			SET &TablaOrigen;
@@ -1094,7 +1092,7 @@
 	%END;
 	%ELSE
 	%DO;
-		%LET nombTabResp			=&nombreLibreria..&prefijoRespaldos.&nombreTabla._V1;
+		%LET nombTabResp			=&nombreLibreria..&PrefijoRespaldos.&nombreTabla._V1;
 
 		DATA &nombTabResp;
 		SET &TablaOrigen;
@@ -1106,8 +1104,9 @@
 		%LET ultTabResp		=&nombTabResp;
 %MEND RESPALDAR;
 
-%MACRO RESTAURAR_RESPALDO(TablaOrigen	=/*CON Libreria, tabla donde se restaurará el respaldo*/,
-							Version		=/*CON Libreria, si se quiere restaurar una en particular, de lo contrario de toma la más reciente*/NULA);
+%MACRO RESTAURAR_RESPALDO(TablaOrigen			=/*CON Libreria, tabla donde se restaurará el respaldo*/,
+							Version				=/*CON Libreria, si se quiere restaurar una en particular, de lo contrario de toma la más reciente*/NULA,
+							PrefijoRespaldos	=/*SIN COMILLAS, por defecto es MDR_ */%STR(MDR_));
 	%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
 	%LET patronTabla 			= %SYSFUNC(PRXPARSE(s/^.*\.//) );
 
@@ -1115,8 +1114,6 @@
 	%LET soloTabla				= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&TablaOrigen));
 
 	%LET TABLA_RESTAURADORA		=%STR();
-
-	%LET prefijoRespaldos	= MDR_; 
 	
 	%IF "&Version" EQ "NULA" %THEN
 	%DO;
@@ -1131,7 +1128,7 @@
 				DICTIONARY.TABLES T
 			WHERE
 				T.LIBNAME EQ "&soloLibreria"	AND
-				T.MEMNAME LIKE "&prefijoRespaldos" || "&soloTabla" || "_V" || "%";
+				T.MEMNAME LIKE "&PrefijoRespaldos" || "&soloTabla" || "_V" || "%";
 		QUIT; 
 
 		%IF &CONTEO_RESP_REST NE 0 %THEN
@@ -1145,7 +1142,7 @@
 				DICTIONARY.TABLES T
 			WHERE
 				T.LIBNAME EQ "&soloLibreria"									AND
-				T.MEMNAME LIKE "&prefijoRespaldos" || "&soloTabla" || "_V" || "%"
+				T.MEMNAME LIKE "&PrefijoRespaldos" || "&soloTabla" || "_V" || "%"
 			HAVING
 				T.MODATE EQ MAX(MODATE);
 			QUIT;
@@ -1172,7 +1169,7 @@
 				DICTIONARY.TABLES T
 			WHERE
 				T.LIBNAME EQ "&soloLibreria"												AND
-				T.MEMNAME LIKE "&prefijoRespaldos" || "&soloTabla" || "_" || "&Version" || "%"
+				T.MEMNAME LIKE "&PrefijoRespaldos" || "&soloTabla" || "_" || "&Version" || "%"
 			HAVING
 				T.MODATE EQ MAX(MODATE);
 		QUIT;
@@ -1194,12 +1191,11 @@
 	%END;
 %MEND RESTAURAR_RESPALDO;
 
-%MACRO BORRAR_RESPALDOS(LibreriaOrigen	=/*SIN comillas, donde se encuentran las tablas a borrar*/,
-						TablaOrigen		=/*SIN Libreria, de ser varias, separadas por espacio, de ser todas, colocar TODAS */,
-						Cantidad		=/*De no especificarse se tomara el valor por defecto (2) y de especificarse se tomará la(s) más vieja(s)*/2);
+%MACRO BORRAR_RESPALDOS(LibreriaOrigen		=/*SIN comillas, donde se encuentran las tablas a borrar*/,
+						TablaOrigen			=/*SIN Libreria, de ser varias, separadas por espacio, de ser todas, colocar TODAS */,
+						Cantidad			=/*De no especificarse se tomara el valor por defecto (2) y de especificarse se tomará la(s) más vieja(s)*/2,
+						PrefijoRespaldos	=/*SIN COMILLAS, por defecto es MDR_ */%STR(MDR_));
 	%LET chequeo				=%SCAN(&TablaOrigen, 1, %STR( ));
-
-	%LET prefijoRespaldos		=MDR_;  
 
 	%LET condicionCantidad		=%STR();
 
@@ -1232,7 +1228,7 @@
 				DICTIONARY.TABLES T
 			WHERE
 				T.LIBNAME EQ "&LibreriaOrigen"									AND
-				T.MEMNAME LIKE "&prefijoRespaldos" || "&tablaActual" || "%"
+				T.MEMNAME LIKE "&PrefijoRespaldos" || "&tablaActual" || "%"
 				&condicionCantidad
 				;
 		QUIT;

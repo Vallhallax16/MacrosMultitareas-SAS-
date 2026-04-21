@@ -39,7 +39,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
    %DO;
       LIBNAME %SCAN(&asignaciones, 3, %STR(|));
    %END;
-%MEND %ASIGNAR_FUENTES;
+%MEND ASIGNAR_FUENTES;
 
 /*Env�o de tablas origen no disponibles*/
 %macro NotificacionSinDisponibilidad(Tabla);

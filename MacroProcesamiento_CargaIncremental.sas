@@ -987,30 +987,33 @@
 	%LET tablaBorrable				=%SCAN(&NombreTabla, 1, %STR( ));
 	%LET tablaABorrar				=&NombreTabla;
 
-	%IF "&tablaBorrable" EQ "TODAS" %THEN
+	%IF %LENGTH(&tablaBorrable) GT 0 %THEN
 	%DO;
-		%LET tablaABorrar			=%STR();
+		%IF "&tablaBorrable" EQ "TODAS" %THEN
+		%DO;
+			%LET tablaABorrar			=%STR();
 
-		%DO indexI = 1 %TO %SYSFUNC(COUNTW(&STACK_TABLAS));
-			%LET tablaABorrar		=&tablaABorrar %SCAN(&STACK_TABLAS, &indexI, %STR( ));
+			%DO indexI = 1 %TO %SYSFUNC(COUNTW(&STACK_TABLAS));
+				%LET tablaABorrar		=&tablaABorrar %SCAN(&STACK_TABLAS, &indexI, %STR( ));
+			%END;
+
+			%LET STACK_TABLAS			=%STR();
+		%END;
+		%DO;
+			%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
+			%LET patronTabla 			= %SYSFUNC(PRXPARSE(s/^.*\.//) );
+
+			%LET soloLibreria			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&NombreTabla));
+			%LET soloTabla				= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&NombreTabla));
+
+			%LET patronTablaBorrar		=%SYSFUNC(PRXPARSE(s/&soloLibreria\.&soloTabla//) );
+			%LET STACK_TABLAS			=%SYSFUNC(STRIP(%SYSFUNC(COMPBL(%SYSFUNC(PRXCHANGE(&patronTablaBorrar, -1, &STACK_TABLAS))))));
 		%END;
 
-		%LET STACK_TABLAS			=%STR();
+		PROC DELETE DATA =
+			&tablaABorrar;
+		RUN;
 	%END;
-	%DO;
-		%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
-		%LET patronTabla 			= %SYSFUNC(PRXPARSE(s/^.*\.//) );
-
-		%LET soloLibreria			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&NombreTabla));
-		%LET soloTabla				= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&NombreTabla));
-
-		%LET patronTablaBorrar		=%SYSFUNC(PRXPARSE(s/&soloLibreria\.&soloTabla//) );
-		%LET STACK_TABLAS			=%SYSFUNC(STRIP(%SYSFUNC(COMPBL(%SYSFUNC(PRXCHANGE(&patronTablaBorrar, -1, &STACK_TABLAS))))));
-	%END;
-
-	PROC DELETE DATA =
-		&tablaABorrar;
-	RUN;
 %MEND BORRAR_TABLA_DE_PASO;
 
 %MACRO NOT_IN(ObjetoBuscable	= /*Lo que se buscará que NO esté en la lista*/,

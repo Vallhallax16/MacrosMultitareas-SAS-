@@ -30,8 +30,6 @@
 	%DO;
 		%LET 	argDelim	=	%STR( );
 	%END;
-
-	%PUT >>>> argDelim &argDelim;
 	
 	PROC IMPORT 
 		OUT 		=&TablaSaliente

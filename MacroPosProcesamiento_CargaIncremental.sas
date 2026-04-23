@@ -477,3 +477,73 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 
 	%LET &Colector	=%SUPERQ(secHtml);
 %MEND CREAR_SECCION;
+
+%MACRO REPORTE_PERSONALIZADO(TituloReporte	=/*Título principal del reporte, SIN comillas*/,
+							ListaSecciones	=/*Lista de títulos de secciones separados por &Separador, SIN comillas*/,
+							ListaValores	=/*Lista de valores correspondientes separados por &Separador, SIN comillas*/,
+							Destinos		=/*Destinatario(s) del correo, CON comillas*/,
+							Separador		=/*Separador de listas, por defecto |*/%STR(|),
+							Remitente		=/*Remitente del correo, CON comillas*/"DEDA@REPORTES.CAWN");
+	%LOCAL listadoItems conteoSecciones conteoValores seccionActual valorActual iRP;
+	%LOCAL colorTabFondo colorFndEncab colorTxtEncab colorSeccion;
+	%LOCAL cuerpoHTML asuntoCorreo seccionContenido timestActual;
+
+	/* Definición de colores en tonos verdes */
+	%LET colorTabFondo	= %STR(#d4f5e0);	/* Verde claro - fondo de tabla */
+	%LET colorFndEncab	= %STR(#0b7d3e);	/* Verde oscuro - fondo encabezado */
+	%LET colorTxtEncab	= %STR(#FFFFFF);	/* Blanco - texto encabezado */
+	%LET colorSeccion	= %STR(#0b7d3e);	/* Verde oscuro - título de sección */
+
+	/* Validar que las listas tengan la misma cantidad de elementos */
+	%LET conteoSecciones	= %SYSFUNC(COUNTW(%SUPERQ(ListaSecciones), %SUPERQ(Separador)));
+	%LET conteoValores		= %SYSFUNC(COUNTW(%SUPERQ(ListaValores), %SUPERQ(Separador)));
+
+	%IF &conteoSecciones NE &conteoValores %THEN
+	%DO;
+		%PUT ERROR: La cantidad de secciones (&conteoSecciones) no coincide con la cantidad de valores (&conteoValores).;
+		%PUT ERROR: Verifique que ambas listas tengan el mismo número de elementos.;
+		%RETURN;
+	%END;
+
+	%IF &conteoSecciones EQ 0 %THEN
+	%DO;
+		%PUT ERROR: Las listas de secciones y valores están vacías.;
+		%RETURN;
+	%END;
+
+	/* Construir la lista de items HTML */
+	%LET listadoItems = %STR();
+
+	%DO iRP = 1 %TO &conteoSecciones;
+		%LET seccionActual	= %QSCAN(%SUPERQ(ListaSecciones), &iRP, %SUPERQ(Separador));
+		%LET valorActual	= %QSCAN(%SUPERQ(ListaValores), &iRP, %SUPERQ(Separador));
+
+		%LET listadoItems	= &listadoItems<li><strong>&seccionActual:</strong> &valorActual</li>;
+	%END;
+
+	/* Crear la sección de contenido usando el macro existente */
+	%LET seccionContenido = %STR();
+
+	%CREAR_SECCION(ColorEncabezado	= &colorSeccion,
+					TituloEncab		= %STR(DETALLE DEL REPORTE),
+					ListaOpciones	= &listadoItems,
+					Colector		= seccionContenido);
+
+	/* Obtener timestamp actual */
+	%LET timestActual = %SYSFUNC(PUTN(%SYSFUNC(DATETIME()), DATETIME20.));
+
+	/* Construir el asunto del correo */
+	%LET asuntoCorreo = "Resumen &TituloReporte";
+
+	/* Construir el cuerpo HTML del correo */
+	%LET cuerpoHTML = "<html><body><table width='600' cellpadding='0' cellspacing='0' border='0' style=%STR(%')font-family: Arial, sans-serif; font-size:14px; color:#000000; background-color:&colorTabFondo;%STR(%')><tr><td align='center' style=%STR(%')font-size:24px; font-weight:bold; padding:20px 0; background-color:&colorFndEncab; color:&colorTxtEncab;%STR(%')>&TituloReporte</td></tr><tr><td style='padding:5px 10px;'><strong>Fecha de generacion:</strong> &timestActual</td></tr><tr><td style='padding:5px 10px;'><strong>Servidor:</strong> &SYSTCPIPHOSTNAME</td></tr><tr><td style='padding:5px 10px;'><strong>Proceso:</strong> &SYSJOBID</td></tr><tr><td style='padding-bottom:20px;'><br></td></tr>%SUPERQ(seccionContenido)<tr><td style='padding-bottom:20px;'><br></td></tr></table></body></html>";
+
+	/* Enviar el correo */
+	%ENVIO_MAIL(DESTINO			= &Destinos,
+				Remitente		= &Remitente,
+				Asunto			= &asuntoCorreo,
+				MSG				= &cuerpoHTML,
+				ContenidoHTML	= 1);
+
+	%PUT NOTE: Reporte "&TituloReporte" enviado exitosamente a &Destinos;
+%MEND REPORTE_PERSONALIZADO;

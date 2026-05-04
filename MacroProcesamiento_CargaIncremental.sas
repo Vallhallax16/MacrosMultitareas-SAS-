@@ -136,43 +136,46 @@
 	%END;
 %MEND UNIR_TABLAS;
 
-%MACRO CREAR_EQ_ESCALAR(TablaDestino        = /*CON Libreria, donde se colocará la tabla*/,
-                        ValoresTexto        = /*Separados por | (Pipe), SIN comillas y en orden de importancia (Menor a mayor)*/,
-                        ValorMinimo         = /*SIN comillas*/,
-						ValorNeutro         = /*SIN comillas, por defecto es 0*/0,
-                        ValorMaximo         = /*SIN comillas*/);
-    
-    %LET inicial        = &ValorMinimo;
+%MACRO CREAR_EQ_ESCALAR(TablaDestino   = /*CON Libreria, donde se colocará la tabla*/,
+                        ValoresTexto   = /*Separados por | (Pipe), SIN comillas y en orden de importancia (Menor a mayor)*/,
+                        ValorMinimo    = /*SIN comillas*/,
+                        ValorNeutro    = /*SIN comillas, por defecto es 0*/0,
+                        ValorMaximo    = /*SIN comillas*/);
 
-    %LET valores        = %STR( );
+    %LOCAL i inicial valores patronEsp valorScan valorAlter totalValores;
 
-    %DO i = 1 %TO %SYSFUNC(COUNTW(&ValoresTexto,%STR(|)));
-        %LET patronEsp 	= %SYSFUNC(PRXPARSE(s/\s/.*/));
+    %LET inicial      = &ValorMinimo;
+    %LET valores      = %STR( );
 
-		%LET valorAlter	= %SYSFUNC(PRXCHANGE(&patronEsp, -1, %SCAN(&ValoresTexto, &i, %STR(|))));
-		%LET valorAlter = .*%SYSFUNC(UPCASE(&valorAlter)).*;
+    %LET totalValores = %SYSFUNC(COUNTW(%SUPERQ(ValoresTexto), %STR(|)));
 
-        %LET valorTemp  = %SYSFUNC(CATS(".*","&valorAlter"));
-        %LET valorTemp  = %SYSFUNC(UPCASE(&valorTemp));
-        
-        %LET valores    = &valores %STR(VALUES ("&valorAlter", "&inicial"));
+    %DO i = 1 %TO &totalValores;
 
-        %LET inicial    = %EVAL(&inicial + 1);
+        %LET patronEsp = %SYSFUNC(PRXPARSE(s/\s/.*/));
+
+        %LET valorScan = %QSCAN(%SUPERQ(ValoresTexto), &i, %STR(|));
+
+        %LET valorAlter = %QSYSFUNC(PRXCHANGE(&patronEsp, -1, %SUPERQ(valorScan)));
+        %LET valorAlter = .*%QSYSFUNC(UPCASE(%SUPERQ(valorAlter))).*;
+
+        %LET valores = &valores %NRBQUOTE(VALUES ("%SUPERQ(valorAlter)", "&inicial"));
+
+        %LET inicial = %EVAL(&inicial + 1);
     %END;
 
     DATA &TablaDestino;
-	LENGTH
-		VIEJO_EQ			$50
-		ID_EQUIVALENTE_EQ	$40;
-    STOP;
-    RUN;             
-                            
+        LENGTH
+            VIEJO_EQ          $50
+            ID_EQUIVALENTE_EQ $40;
+        STOP;
+    RUN;
+
     PROC SQL;
-        INSERT INTO 
-            &TablaDestino
+        INSERT INTO &TablaDestino
             (VIEJO_EQ, ID_EQUIVALENTE_EQ)
-        &valores %STR(;);
+        %UNQUOTE(&valores) %STR(;);
     QUIT;
+
 %MEND CREAR_EQ_ESCALAR;
 
 %MACRO SUSTITUIR_VALORES(TablaOrigen 			= /*CON Libreria*/,
@@ -1248,8 +1251,7 @@
 /*RESULTADO:  C, N o ""*/
 %MACRO TIPADO_COL(TablaOrigen		= /*CON Libreria*/,
 				 	Columna			= /*Donde se checará el tipado*/,
-					Colector		= /*Donde se depositará el resultado*/);
-						
+					Colector		= /*Donde se depositará el resultado*/);						
 	%IF %SYSFUNC(INDEXC(%SUPERQ(Columna), %STR(%"))) GT 0 %THEN
 	%DO;
 		%LET patronSinP	=s/%STR(%")n$/%STR(%")/;
@@ -1266,7 +1268,9 @@
 	SET &TablaOrigen (OBS = 1);
 		IF NOT MISSING(&Columna) THEN
 		DO;
-			tipo = VTYPEX(&Columna);
+			tipo = VTYPE(&Columna);
+
+			PUT tipo=; 
 
 			CALL SYMPUT("&Colector", tipo);
 

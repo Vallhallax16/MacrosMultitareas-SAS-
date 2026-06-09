@@ -70,7 +70,7 @@ OPTIONS SET = NLS_LANG="SPANISH_SPAIN.WE8ISO8859P1";
 			FROM
 				&FuenteBit T;
 
-			%BORRAR_TABLA_DE_PASO(NombreTabla	= TODAS);
+			/*%BORRAR_TABLA_DE_PASO(NombreTabla	= TODAS);*/
 		%END;
 		%ELSE
 		%DO;

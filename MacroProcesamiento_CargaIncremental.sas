@@ -178,57 +178,63 @@
 
 %MEND CREAR_EQ_ESCALAR;
 
-%MACRO SUSTITUIR_VALORES(TablaOrigen 			= /*CON Libreria*/,
-							CampoALeer			= /*SIN comillas, pertenece a la tabla origen, donde se reemplazará todo, separados por espacio si son varios*/,
-							TablaSusticiones	= /*CON Libreria, posee todas las equivalencias*/);
-								
-	%LET columnasConteo			= %SYSFUNC(COUNTW(&CampoALeer, %STR( )));
-								
-	DATA &TablaOrigen (DROP = ptrTabla cantRenglones ptrCierre i VIEJO_EQ ID_EQUIVALENTE_EQ inicio opuesto incremento lector leidos);
-	SET &TablaOrigen;
-		RETAIN cantRenglones;
+%MACRO SUSTITUIR_VALORES(TablaOrigen            = /* CON Libreria */,
+                            CampoALeer          = /* SIN comillas, separados por espacio si son varios */,
+                            TablaSusticiones    = /* CON Libreria, posee todas las equivalencias */);
 
-		ARRAY columnas[&columnasConteo] &CampoALeer;
+    %LOCAL columnasConteo totalEquivalencias i j columna flag tablaEqTemp viejoAct eqAct campoAct;
 
-		IF _N_ EQ 1 THEN
-		DO;
-			ptrTabla 		= open("&TablaSusticiones");
-			cantRenglones 	= attrn(ptrTabla, 'NOBS');
-			ptrCierre 		= close(ptrTabla);
-		END;
+    %LET columnasConteo = %SYSFUNC(COUNTW(&CampoALeer, %STR( )));
+    %LET tablaEqTemp    = _EQ_%SYSFUNC(COMPRESS(%SYSFUNC(DATETIME()), .));
 
-		DO i = 1 TO dim(columnas);
-			inicio 				= 1;
-			opuesto				= cantRenglones;
-			incremento			= 0;
-			lector				= inicio;
-			leidos				= 1;
+    PROC SQL;
+        CREATE TABLE WORK.&tablaEqTemp AS
+            SELECT
+                VIEJO_EQ,
+                ID_EQUIVALENTE_EQ,
+                LENGTHN(STRIP(VIEJO_EQ)) AS LONGITUD_EQ
+            FROM 
+                &TablaSusticiones
+            ORDER BY 
+                LONGITUD_EQ DESC;
+    QUIT;
 
-			DO WHILE(leidos <= cantRenglones);
-				SET &TablaSusticiones POINT = lector;
+    PROC SQL NOPRINT;
+        SELECT
+            QUOTE(TRIM(VIEJO_EQ), "'"),
+            QUOTE(TRIM(ID_EQUIVALENTE_EQ), "'")
+        INTO
+            :VIEJO_EQ              SEPARATED BY '|', 
+            :ID_EQUIVALENTE_EQ     SEPARATED BY '|'
+        FROM 
+            WORK.&tablaEqTemp;
 
-				IF PRXMATCH(CATS('/', VIEJO_EQ, '/i'), columnas[i]) THEN
-				DO;
-					columnas[i] = ID_EQUIVALENTE_EQ;
-					LEAVE;
-				END;
-				ELSE
-				DO;
-					IF MOD(lector,2) NE 0 THEN
-					DO;
-						lector	= opuesto - incremento;
-					END;
-					ELSE
-					DO;
-						lector	= inicio + incremento;
-					END;
+        %LET totalEquivalencias = &SQLOBS;
+    QUIT;
 
-					incremento + 1;
-					leidos + 1;
-				END;
-			END;
-		END;
-	RUN;
+	%LET VIEJO_EQ = %SYSFUNC(PRXCHANGE(s/\.\*/%/, -1, &VIEJO_EQ));
+	
+    PROC SQL;
+        %DO i = 1 %TO %SYSFUNC(COUNTW(&VIEJO_EQ, %STR(|)));
+			%LET viejoAct = %SCAN(&VIEJO_EQ, &i, %STR(|));
+			%LET eqAct    = %SCAN(&ID_EQUIVALENTE_EQ, &i, %STR(|));
+
+            %DO j = 1 %TO %SYSFUNC(COUNTW(&CampoALeer, %STR( )));
+				%LET campoAct = %SCAN(&CampoALeer, &j, %STR( ));
+
+                UPDATE 
+					&TablaOrigen
+                SET
+                    &campoAct = &eqAct
+                WHERE
+                   UPPER(&campoAct) LIKE UPPER(&viejoAct);
+            %END;
+        %END;
+    QUIT;
+
+    PROC DATASETS LIBRARY = WORK NOLIST;
+        DELETE &tablaEqTemp;
+    QUIT;
 %MEND SUSTITUIR_VALORES;
 
 %MACRO CREAR_RANGO(TablaOrigen			= /*CON Libreria, de donde se extraeran los rangos y se creará la columna ID_EQUIVALENTE_EQ*/,
@@ -314,69 +320,73 @@
 	RUN;
 %MEND CREAR_RANGO;
 
-%MACRO ELIMINAR_FIJAS(ColumnasFijas					= /*Columnas que no deben ser tomadas en cuenta*/,
-						TipoDato					= /*CHAR, NUM o TODAS */,
-						SeparadorDeFijas			= /*Por lo general es |*/%STR(|),
-						SeparadorDeOriginales		= /*Por lo general es espacio ' '*/%STR( ));
-							
-	%IF "&TipoDato" EQ "CHAR" %THEN
-	%DO;
-		%LET limiteOriginal			=&CONTEOS_CHAR;
-		%LET columnasOriginales 	=%SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_CHAR));
-	%END;
-	%ELSE %IF "&TipoDato" EQ "NUM" %THEN
-	%DO;
-		%LET limiteOriginal			=&CONTEOS_NUM;
-		%LET columnasOriginales 	=%SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_NUM));		
-	%END;
-	%ELSE
-	%DO;
-		%LET limiteOriginal			=%SYSFUNC(COUNTW(&LISTA_VARIABLES_TODAS));
-		%LET columnasOriginales 	=%SYSFUNC(prxchange(s/['|'n]//, -1, &LISTA_VARIABLES_TODAS));	
-	%END;
+%MACRO ELIMINAR_FIJAS(ColumnasFijas         = /*Columnas que no deben ser tomadas en cuenta*/,
+                      TipoDato              = /*CHAR, NUM o TODAS */,
+                      SeparadorDeFijas      = /*Por lo general es |*/%STR(|),
+                      SeparadorDeOriginales = /*Por lo general es espacio ' '*/%STR( ));
 
-	%LET limiteFijas				=%SYSFUNC(COUNTW(&ColumnasFijas,&SeparadorDeFijas));
+    %LOCAL i j limiteOriginal limiteFijas columnasOriginales depuradas
+           encontrado varOriginalEnTurno varFijaEnTurno;
 
-	%LET depuradas					=%STR();
-							
-	%DO i = 1 %TO &limiteOriginal;
-		%LET encontrado				=0;
+    %IF %SUPERQ(TipoDato) EQ CHAR %THEN
+    %DO;
+        %LET limiteOriginal     = &CONTEOS_CHAR;
+        %LET columnasOriginales = %SYSFUNC(prxchange(s/['|'n]//, -1, %SUPERQ(LISTA_VARIABLES_CHAR)));
+    %END;
+    %ELSE %IF %SUPERQ(TipoDato) EQ NUM %THEN
+    %DO;
+        %LET limiteOriginal     = &CONTEOS_NUM;
+        %LET columnasOriginales = %SYSFUNC(prxchange(s/['|'n]//, -1, %SUPERQ(LISTA_VARIABLES_NUM)));
+    %END;
+    %ELSE
+    %DO;
+        %LET limiteOriginal     = %SYSFUNC(COUNTW(%SUPERQ(LISTA_VARIABLES_TODAS)));
+        %LET columnasOriginales = %SYSFUNC(prxchange(s/['|'n]//, -1, %SUPERQ(LISTA_VARIABLES_TODAS)));
+    %END;
 
-		%LET varOriginalEnTurno		=%SCAN(&columnasOriginales, &i, &SeparadorDeOriginales);
+    %LET limiteFijas = %SYSFUNC(COUNTW(%SUPERQ(ColumnasFijas), %SUPERQ(SeparadorDeFijas)));
 
-		%DO j = 1 %TO &limiteFijas;
-			%LET varFijaEnTurno		=%SCAN(&ColumnasFijas, &j, &SeparadorDeFijas);
+    %LET depuradas = %STR();
 
-			%IF &varOriginalEnTurno EQ &varFijaEnTurno %THEN
-			%DO;
-				%LET encontrado	=1;
-				%LET j				=%EVAL(&limiteFijas + 1);
-			%END;
-		%END;
+    %DO i = 1 %TO &limiteOriginal;
+        %LET encontrado = 0;
 
-		%IF &encontrado NE 1 %THEN
-		%DO;
-			%LET depuradas			=&depuradas&varOriginalEnTurno;
+        %LET varOriginalEnTurno = %QSCAN(%SUPERQ(columnasOriginales), &i, %SUPERQ(SeparadorDeOriginales));
 
-			%IF &i < &limiteOriginal %THEN
-				%LET depuradas		=&depuradas&SeparadorDeOriginales;
-		%END;
-	%END;
+        %DO j = 1 %TO &limiteFijas;
+            %LET varFijaEnTurno = %QSCAN(%SUPERQ(ColumnasFijas), &j, %SUPERQ(SeparadorDeFijas));
 
-	%IF "&TipoDato" EQ "CHAR" %THEN
-	%DO;
-		%LET CONTEOS_CHAR			=%SYSFUNC(COUNTW(&depuradas,&SeparadorDeOriginales));
-		%LET LISTA_VARIABLES_CHAR	=&depuradas;
-	%END;
-	%ELSE %IF "&TipoDato" EQ "NUM" %THEN
-	%DO;
-		%LET CONTEOS_NUM			=%SYSFUNC(COUNTW(&depuradas,&SeparadorDeOriginales));
-		%LET LISTA_VARIABLES_NUM	=&depuradas;
-	%END;
-	%ELSE
-	%DO;
-		%LET LISTA_VARIABLES_TODAS	=&depuradas;
-	%END;
+            %IF %QUPCASE(%QSYSFUNC(STRIP(%SUPERQ(varOriginalEnTurno))))
+              = %QUPCASE(%QSYSFUNC(STRIP(%SUPERQ(varFijaEnTurno)))) %THEN
+            %DO;
+                %LET encontrado = 1;
+                %LET j = %EVAL(&limiteFijas + 1);
+            %END;
+        %END;
+
+        %IF &encontrado NE 1 %THEN
+        %DO;
+            %LET depuradas = &depuradas.%SUPERQ(varOriginalEnTurno);
+
+            %IF &i < &limiteOriginal %THEN
+                %LET depuradas = &depuradas.%SUPERQ(SeparadorDeOriginales);
+        %END;
+    %END;
+
+    %IF %SUPERQ(TipoDato) EQ CHAR %THEN
+    %DO;
+        %LET CONTEOS_CHAR         = %SYSFUNC(COUNTW(%SUPERQ(depuradas), %SUPERQ(SeparadorDeOriginales)));
+        %LET LISTA_VARIABLES_CHAR = %SUPERQ(depuradas);
+    %END;
+    %ELSE %IF %SUPERQ(TipoDato) EQ NUM %THEN
+    %DO;
+        %LET CONTEOS_NUM         = %SYSFUNC(COUNTW(%SUPERQ(depuradas), %SUPERQ(SeparadorDeOriginales)));
+        %LET LISTA_VARIABLES_NUM = %SUPERQ(depuradas);
+    %END;
+    %ELSE
+    %DO;
+        %LET LISTA_VARIABLES_TODAS = %SUPERQ(depuradas);
+    %END;
 %MEND ELIMINAR_FIJAS;
 
 %MACRO TRANSPONER_PARAMETRIZADO(TablaOrigen			= /*CON Libreria, de donde se tomarán los datos*/,
@@ -992,8 +1002,12 @@
 
 	%IF %LENGTH(&tablaBorrable) GT 0 %THEN
 	%DO;
+		%PUT >>>> Tabla borrable detectada;
+
 		%IF "&tablaBorrable" EQ "TODAS" %THEN
 		%DO;
+			%PUT >>>> Se escogieron todas;
+
 			%LET tablaABorrar			=%STR();
 
 			%DO indexI = 1 %TO %SYSFUNC(COUNTW(&STACK_TABLAS));
@@ -1003,14 +1017,27 @@
 			%LET STACK_TABLAS			=%STR();
 		%END;
 		%DO;
+			%PUT >>>> Se escogio una particular;
+
 			%LET patronLibreria 		= %SYSFUNC(PRXPARSE(s/\..*$//) );
 			%LET patronTabla 			= %SYSFUNC(PRXPARSE(s/^.*\.//) );
 
 			%LET soloLibreria			= %SYSFUNC(PRXCHANGE(&patronLibreria, -1,&NombreTabla));
 			%LET soloTabla				= %SYSFUNC(PRXCHANGE(&patronTabla, -1,&NombreTabla));
 
+			%PUT >>>> soloLibreria &soloLibreria;
+			%PUT >>>> soloTabla &soloTabla;
+
 			%LET patronTablaBorrar		=%SYSFUNC(PRXPARSE(s/&soloLibreria\.&soloTabla//) );
-			%LET STACK_TABLAS			=%SYSFUNC(STRIP(%SYSFUNC(COMPBL(%SYSFUNC(PRXCHANGE(&patronTablaBorrar, -1, &STACK_TABLAS))))));
+
+			%LET STACK_TABLAS			=%SYSFUNC(PRXCHANGE(&patronTablaBorrar, -1, &STACK_TABLAS));
+
+			%IF %LENGTH(&STACK_TABLAS) GT 0 %THEN
+			%DO;
+				%LET STACK_TABLAS		=%SYSFUNC(STRIP(%SYSFUNC(COMPBL(&STACK_TABLAS))));
+			%END;
+
+			%PUT >>>> STACK_TABLAS &STACK_TABLAS;
 		%END;
 
 		PROC DELETE DATA =
@@ -1255,14 +1282,17 @@
 	%IF %SYSFUNC(INDEXC(%SUPERQ(Columna), %STR(%"))) GT 0 %THEN
 	%DO;
 		%LET patronSinP	=s/%STR(%")n$/%STR(%")/;
+		%LET objetivo	='"';
 	%END;
 	%ELSE
 	%DO;
 		%LET patronSinP	=s/%STR(%')n$/%STR(%')/;
+		%LET objetivo	="'";
 	%END;
 						
 	%LET patronLiteral	=%SYSFUNC(PRXPARSE(&patronSinP));
 	%LET Columna		=%SYSFUNC(PRXCHANGE(&patronLiteral, -1, %SUPERQ(Columna)));
+	%LET Columna		=%SYSFUNC(COMPRESS(&Columna, &objetivo));
 						
 	DATA _NULL_;
 	SET &TablaOrigen (OBS = 1);
@@ -1421,18 +1451,37 @@
 /*RESULTADO:  La misma tabla con otro orden de columnas*/
 %MACRO REACOMODO_COLS(TablaOrigen	=/*CON Libreria, de donde se tomará la información y se sobreescribirá*/,
 						OrdenNvoCol	=/*Selección de columnas, con formato SQL* Ej. COL1, COL2, etc o COL1, T.* el alias (T) aplica a la TablaOrigen*/);
-	%LET patronTabla 				= %SYSFUNC(PRXPARSE(s/^.*\.//));
-	
-	%LET tdpTemp					= WORK.%SYSFUNC(PRXCHANGE(&patronTabla, -1, &TablaOrigen));
 
-	%LET comandoSql					= SELECT &OrdenNvoCol FROM &TablaOrigen T;
-						
-	%TABLA_DE_PASO(NombreTabla		=&tdpTemp,
-					DatosQuery		=&comandoSql);	
+	%LOCAL patronTabla patronLib libOrigen nbTabla nbTablaTdp tdpTemp comandoSql;
+
+	%LET patronTabla 	= %SYSFUNC(PRXPARSE(s/^.*\.//));
+	%LET patronLib		= %SYSFUNC(PRXPARSE(s/\..*$//));
+
+	%LET libOrigen		= %UPCASE(%SYSFUNC(PRXCHANGE(&patronLib, -1, &TablaOrigen)));
+	%LET nbTabla		= %SYSFUNC(PRXCHANGE(&patronTabla, -1, &TablaOrigen));
+
+	%LET nbTablaTdp		= &nbTabla;
+
+	%IF "&libOrigen" EQ "WORK" %THEN
+	%DO;
+		%LET sufijo		= 2;
+		%LET nbTablaTdp	= &nbTabla._V&sufijo;
+
+		%DO %WHILE (%SYSFUNC(EXIST(WORK.&nbTablaTdp)));
+			%LET sufijo		= %EVAL(&sufijo + 1);
+			%LET nbTablaTdp	= &nbTabla._V&sufijo;
+		%END;
+	%END;
+
+	%LET tdpTemp		= WORK.&nbTablaTdp;
+
+	%LET comandoSql		= SELECT &OrdenNvoCol FROM &TablaOrigen T;
+
+	%TABLA_DE_PASO(NombreTabla	=&tdpTemp,
+					DatosQuery	=&comandoSql);
 
 	DATA &TablaOrigen;
 	SET &tdpTemp;
-
 	RUN;
 
 	%BORRAR_TABLA_DE_PASO(NombreTabla	= &tdpTemp);

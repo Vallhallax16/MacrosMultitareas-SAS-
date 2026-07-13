@@ -1,0 +1,7 @@
+{
+  "bundle": "t002_dictionary_columnindex",
+  "source_file": "MacroExcelPorIndices.sas",
+  "source_blob_sha": "f6066c3029bb77c08937f2b93361203cb29d32c9",
+  "source_commit": "a1e6ac02eb5696a781fbd8ddcbfe15862bf1df8a",
+  "notes": "%EFECTUAR_CONTEOS and %CALCULAR_VARIABLES copied verbatim (both read DICTIONARY.COLUMNS). Added caller: builds a 3-row WORK.CLIENTES sample, counts CHAR columns (=3) and builds the delimited name-literal list ('NOMBRE'n|'CIUDAD'n|'EMAIL'n)."
+}

@@ -1,0 +1,7 @@
+                                        WORK.PERSONAS importada con DATA_IMPORT                                         
+
+NOMBRE  EDAD  CIUDAD
+Ana       34  CDMX
+Luis      28  Puebla
+Marta     41  Leon
+

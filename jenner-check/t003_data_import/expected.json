@@ -1,0 +1,13 @@
+{
+  "_captured_at": "2026-07-13T03:27:43Z",
+  "_captured_run_id": "r_67b7defa506843b0af17d7c5b1dac4c4",
+  "status": "ok",
+  "exit_code": 0,
+  "log_contains": [
+    ">>>> Tabla WORK.PERSONAS creada exitosamente desde tmpin",
+    "NOTE: Read 3 rows from tmpin.",
+    "NOTE: Wrote WORK.PERSONAS (3 rows, 3 columns)."
+  ],
+  "log_does_not_contain": ["ERROR:", "[JENNER-ERROR"],
+  "diagnostics": {"parse_warnings": [], "runtime_warnings": []}
+}

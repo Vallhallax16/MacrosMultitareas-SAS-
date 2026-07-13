@@ -1,0 +1,7 @@
+{
+  "bundle": "t003_data_import",
+  "source_file": "MacroImport.sas",
+  "source_blob_sha": "409ea95be876f491cbcf44aca47cd9022bc543cd",
+  "source_commit": "a1e6ac02eb5696a781fbd8ddcbfe15862bf1df8a",
+  "notes": "%DATA_IMPORT copied verbatim (builds LENGTH/INFILE DSD/INPUT dynamically from a Campos spec). Added code writes a pipe-delimited source inline via FILENAME TEMP so the bundle is self-contained, then imports it: WORK.PERSONAS = 3 rows, 3 columns (NOMBRE $30, EDAD num, CIUDAD $20)."
+}

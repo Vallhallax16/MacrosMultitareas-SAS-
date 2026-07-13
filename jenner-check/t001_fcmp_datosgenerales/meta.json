@@ -1,0 +1,7 @@
+{
+  "bundle": "t001_fcmp_datosgenerales",
+  "source_file": "MacroFuncDatosGenerales.sas",
+  "source_blob_sha": "5a793dbc138144edd8a063255b20345c7e29eb15",
+  "source_commit": "a1e6ac02eb5696a781fbd8ddcbfe15862bf1df8a",
+  "notes": "%DECLARAR_FUNCIONES copied verbatim (PROC FCMP defining ArmarMDY/CadenaAnnioCorrecto/EquivalenciaMes/StringAFecha). Added caller: declares functions into WORK, sets CMPLIB, runs StringAFecha over inline numeric YYYYMMDD and dash DD-MM-YYYY samples. All four convert to DATE9. correctly."
+}

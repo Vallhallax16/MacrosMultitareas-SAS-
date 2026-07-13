@@ -1,0 +1,14 @@
+{
+  "_captured_at": "2026-07-13T03:24:52Z",
+  "_captured_run_id": "r_767f9f652eb845eb9564ed417116ff8e",
+  "status": "ok",
+  "exit_code": 0,
+  "log_contains": [
+    "NOTE: Macro variable CONTEO_CHAR = 3",
+    "NOTE: Macro variable LISTA_VARIABLES_CHAR = 'NOMBRE'n|'CIUDAD'n|'EMAIL'n",
+    ">>>> Columnas CHAR en WORK.CLIENTES: 3",
+    ">>>> Lista (name literals): 'NOMBRE'n|'CIUDAD'n|'EMAIL'n"
+  ],
+  "log_does_not_contain": ["ERROR:", "[JENNER-ERROR"],
+  "diagnostics": {"parse_warnings": [], "runtime_warnings": []}
+}

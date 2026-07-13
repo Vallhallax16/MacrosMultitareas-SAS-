@@ -1,0 +1,21 @@
+
+NOTE: Option OBS changed to 100.
+NOTE: PROC FCMP outlib=WORK.FUNC.FECHAS
+
+NOTE: Function ArmarMDY stored to WORK.FUNC.FECHAS.
+NOTE: Function CadenaAnnioCorrecto stored to WORK.FUNC.FECHAS.
+NOTE: Function EquivalenciaMes stored to WORK.FUNC.FECHAS.
+NOTE: Function StringAFecha stored to WORK.FUNC.FECHAS.
+NOTE: Option CMPLIB changed to WORK.FUNC.
+NOTE: DATA fechas_convertidas
+
+NOTE: Processing inline DATALINES (4 lines)
+
+NOTE: Read 4 rows from DATALINES.
+NOTE: Wrote fechas_convertidas (4 rows, 2 columns).
+NOTE: DATA elapsed:
+  wall  0.00 seconds
+  cpu   0.00 seconds
+NOTE: PROC PRINT data=fechas_convertidas
+
+NOTE: PROC PRINT completed: 4 observations printed, 2 variables

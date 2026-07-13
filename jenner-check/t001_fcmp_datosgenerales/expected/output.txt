@@ -1,0 +1,17 @@
+
+               The FCMP Procedure
+
+  Output Library: WORK.FUNC.FECHAS
+  User-defined Function: ArmarMDY
+  User-defined Function: CadenaAnnioCorrecto
+  User-defined Function: EquivalenciaMes
+  User-defined Function: StringAFecha
+
+                              StringAFecha: cadenas numericas y con guion -> fecha DATE9.                               
+
+    origen      fecha
+20240115    15JAN2024
+20231231    31DEC2023
+15-03-2024  15MAR2024
+01-01-2020  01JAN2020
+

@@ -1,0 +1,14 @@
+{
+  "_captured_at": "2026-07-13T03:22:36Z",
+  "_captured_run_id": "r_7ab628cbf69444688bd8d9570cbf4c29",
+  "status": "ok",
+  "exit_code": 0,
+  "log_contains": [
+    "NOTE: Function StringAFecha stored to WORK.FUNC.FECHAS.",
+    "NOTE: Function ArmarMDY stored to WORK.FUNC.FECHAS.",
+    "NOTE: Read 4 rows from DATALINES.",
+    "NOTE: PROC PRINT completed: 4 observations printed, 2 variables"
+  ],
+  "log_does_not_contain": ["ERROR:", "[JENNER-ERROR"],
+  "diagnostics": {"parse_warnings": [], "runtime_warnings": []}
+}
